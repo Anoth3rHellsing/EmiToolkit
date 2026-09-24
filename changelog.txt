@@ -1,0 +1,15 @@
+EMI TOOLKIT / ANOTHER'S TOOLBOX - CHANGELOG
+=============================================
+
+[0.2.0] — 2026-09
+
+CAMBIADO:
+- Renombrado de "Emi Toolkit" a "Another's Toolbox".
+- Añadida sección de Another Store dentro de la aplicación.
+
+[0.1.0] — 2026-09 (Initial)
+
+AÑADIDO:
+- Aplicación de mantenimiento para Windows 11 con interfaz WPF.
+- Herramientas de utilidad y optimización del sistema.
+- Interfaz gráfica moderna basada en WPF.
