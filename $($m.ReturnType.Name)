@@ -1,0 +1,108 @@
+$ErrorActionPreference = 'Stop'
+$Root = 'C:\Users\nicol\OneDrive\Documents\ClaudeCode\EmiToolkit'
+
+Write-Host "=== INVESTIGACION PROFUNDA ==="
+Write-Host ""
+
+# 1. Verificar si EmiToolkit.exe existe y su tamano
+$exePath = Join-Path $Root 'EmiToolkit.exe'
+if (Test-Path $exePath) {
+    $fi = Get-Item $exePath
+    Write-Host "1. EmiToolkit.exe: $($fi.Length) bytes, modificado $($fi.LastWriteTime)"
+} else {
+    Write-Host "1. EmiToolkit.exe: NO EXISTE"
+}
+
+# 2. Decompilar EmiToolkit.exe para ver como invoca PowerShell
+Write-Host ""
+Write-Host "2. Decompilando EmiToolkit.exe..."
+try {
+    $asm = [System.Reflection.Assembly]::LoadFrom($exePath)
+    $type = $asm.GetType('EmiToolkitLauncher.Program')
+    if ($type) {
+        Write-Host "   Tipo encontrado: $($type.FullName)"
+        $methods = $type.GetMethods([System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::DeclaredOnly)
+        foreach ($m in $methods) {
+            Write-Host "   Metodo: $($m.Name) -> $($m.ReturnType.Name)"
+        }
+
+        # Intentar obtener el cuerpo IL del metodo Main
+        $mainMethod = $type.GetMethod('Main', [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::Static)
+        if ($mainMethod) {
+            $body = $mainMethod.GetMethodBody()
+            if ($body) {
+                $il = $body.GetILAsByteArray()
+                Write-Host "   Main IL size: $($il.Length) bytes"
+
+                # Buscar cadenas en el IL (opcode ldstr = 0x72)
+                $module = $asm.GetModules()[0]
+                $strings = @()
+                $i = 0
+                while ($i -lt $il.Length - 4) {
+                    if ($il[$i] -eq 0x72) {
+                        $token = [BitConverter]::ToInt32($il, $i + 1)
+                        try {
+                            $str = $module.ResolveString($token)
+                            $strings += $str
+                        } catch {}
+                        $i += 5
+                    } else {
+                        $i++
+                    }
+                }
+                Write-Host "   Cadenas encontradas en Main:"
+                foreach ($s in $strings) {
+                    Write-Host "     '$s'"
+                }
+            } else {
+                Write-Host "   No se pudo obtener el cuerpo IL de Main"
+            }
+        }
+    } else {
+        Write-Host "   Tipo EmiToolkitLauncher.Program no encontrado"
+        Write-Host "   Tipos disponibles:"
+        foreach ($t in $asm.GetTypes()) {
+            Write-Host "     $($t.FullName)"
+        }
+    }
+} catch {
+    Write-Host "   Error decompilando: $($_.Exception.Message)"
+}
+
+# 3. Verificar si hay otra copia del proyecto en D:\
+Write-Host ""
+Write-Host "3. Buscando otras copias del proyecto..."
+$otherPaths = @(
+    'D:\ClaudeCodeD\EmiToolkit',
+    'D:\ClaudeCode\EmiToolkit',
+    'C:\ClaudeCodeD\EmiToolkit'
+)
+foreach ($p in $otherPaths) {
+    if (Test-Path $p) {
+        Write-Host "   ENCONTRADO: $p"
+        $ps1 = Join-Path $p 'EmiToolkit.ps1'
+        if (Test-Path $ps1) {
+            $fi = Get-Item $ps1
+            Write-Host "     EmiToolkit.ps1: $($fi.Length) bytes, modificado $($fi.LastWriteTime)"
+        }
+        $xaml = Join-Path $p 'UI\MainWindow.xaml'
+        if (Test-Path $xaml) {
+            $fi = Get-Item $xaml
+            Write-Host "     MainWindow.xaml: $($fi.Length) bytes, modificado $($fi.LastWriteTime)"
+        }
+    }
+}
+
+# 4. Leer el runtime-error.log completo para ver la ruta exacta del error
+Write-Host ""
+Write-Host "4. Contenido de runtime-error.log..."
+$logPath = Join-Path $Root 'Data\runtime-error.log'
+if (Test-Path $logPath) {
+    $content = Get-Content $logPath -Raw
+    Write-Host $content
+} else {
+    Write-Host "   Log no existe"
+}
+
+Write-Host ""
+Write-Host "=== FIN INVESTIGACION ==="
