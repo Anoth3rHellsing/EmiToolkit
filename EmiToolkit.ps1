@@ -1,8 +1,8 @@
 <#
-    Emi Toolkit - mantenimiento de equipos Windows 11
+    Another's Toolbox - mantenimiento de equipos Windows 11
     Interfaz WPF con la transparencia nativa de Windows (estilo Frutiger Aero).
 
-    Ejecutar:  EmiToolkit.cmd   (pide permisos de administrador)
+    Ejecutar:  AnotherToolbox.cmd   (pide permisos de administrador)
 #>
 
 [CmdletBinding()]
@@ -26,8 +26,8 @@ if (-not $isAdmin -and -not $NoElevate) {
     catch {
         [void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
         [System.Windows.Forms.MessageBox]::Show(
-            'Emi Toolkit necesita permisos de administrador. Se abrira en modo limitado.',
-            'Emi Toolkit', 'OK', 'Warning') | Out-Null
+            'Another''s Toolbox necesita permisos de administrador. Se abrira en modo limitado.',
+            'Another''s Toolbox', 'OK', 'Warning') | Out-Null
     }
 }
 
@@ -41,7 +41,7 @@ foreach ($m in $ModuleNames) { Import-Module (Join-Path $ModuleDir "$m.psm1") -F
 
 Initialize-EmiCore -RootPath $Root
 Initialize-EmiVault
-Write-EmiLog "Emi Toolkit iniciado en $env:COMPUTERNAME por $env:USERNAME." Ok
+Write-EmiLog "Another's Toolbox iniciado en $env:COMPUTERNAME por $env:USERNAME." Ok
 if (-not $isAdmin) { Write-EmiLog 'Sin permisos de administrador: muchas acciones estaran limitadas.' Warn }
 
 # ------------------------------ XAML ----------------------------------
@@ -56,7 +56,7 @@ function C { param([string] $Name) $win.FindName($Name) }
 $ui = @{}
 foreach ($n in @(
     'TbHeaderHint','BtnClose','BtnMax','BtnMin','SwAdvanced','TbModeHint','TbAdminBadge','TbAdvHeader',
-    'NavHome','NavAnyDesk','NavDisk','NavTweaks','NavPrivacy','NavPrivRecs','NavDebloat','NavApps','NavEset','NavStartup','NavProcess','NavVortex','NavSystem','NavLog',
+    'NavHome','NavAnyDesk','NavDisk','NavTweaks','NavPrivacy','NavPrivRecs','NavDebloat','NavApps','NavEset','NavStartup','NavProcess','NavVortex','NavSystem','NavLog','NavStore',
     'PageHome','PageAnyDesk','PageDisk','PageTweaks','PagePrivacy','PagePrivRecs','PageDebloat','PageApps','PageEset','PageStartup','PageProcess','PageVortex','PageSystem','PageLog',
     'TbHello','TbOneClickInfo','ChkRestore','ChkEsetInclude','ChkZenInclude','BtnOneClick','IcDisks',
     'TbStatPrivacy','TbStatFast','TbStatEset','TbStatZen','TbStatRam','TbStatPc',
@@ -73,6 +73,9 @@ foreach ($n in @(
     'LvVault','TbVaultCount','BtnVaultCopyPw','BtnVaultCopyEmail','BtnVaultDelete',
     'BtnDebloatApply','BtnDebloatRecommended','LvDebloat',
     'BtnAppsScan','BtnAppsUninstall','BtnAppsClearCache','LvApps',
+    'BtnStoreOpenWeb','BtnStoreUninstall','BtnStoreSelectAll',
+    'ChkStoreAudio','ChkStoreDraw','ChkStoreFinance','ChkStoreHub','ChkStoreMedia',
+    'ChkStorePhoto','ChkStorePixel','ChkStorePresent','ChkStoreReader','ChkStoreVault','ChkStoreWriter',
     'BtnEsetApply','BtnEsetTest','BtnEsetRemove','ChkEsetDns','LvEset',
     'BtnStartupScan','BtnStartupDisable','BtnStartupEnable','LvStartup',
     'BtnProcScan','BtnProcKill','BtnProcBlock','TbRam','LvProcess',
@@ -115,6 +118,7 @@ function Set-EmiBusy {
     $ui.EllBusy.Fill   = if ($Busy) { $busyAmber } else { $busyGreen }
     foreach ($b in @('BtnOneClick','BtnDiskScan','BtnDiskClean','BtnDiskDism','BtnScanFiles','BtnScanFolders',
                      'BtnTweakApply','BtnPrivApply','BtnDebloatApply','BtnAppsUninstall','BtnAppsClearCache','BtnEsetApply','BtnEsetTest','BtnEsetRemove',
+                     'BtnStoreOpenWeb','BtnStoreUninstall','BtnStoreSelectAll',
                      'BtnStartupScan','BtnStartupDisable','BtnProcScan','BtnProcKill','BtnProcBlock',
                      'BtnZenSet','BtnFastDisable','BtnUndoAll','BtnDeleteBig',
                      'BtnVortexScan','BtnVortexRemove','BtnVortexFullClean','BtnVortexSkyrimClean',
@@ -223,11 +227,11 @@ function Show-EmiPage {
     }
 }
 
-foreach ($nav in @('NavHome','NavAnyDesk','NavDisk','NavTweaks','NavPrivacy','NavPrivRecs','NavDebloat','NavApps','NavEset','NavStartup','NavProcess','NavVortex','NavSystem','NavLog')) {
+foreach ($nav in @('NavHome','NavAnyDesk','NavDisk','NavTweaks','NavPrivacy','NavPrivRecs','NavDebloat','NavApps','NavEset','NavStartup','NavProcess','NavVortex','NavSystem','NavLog','NavStore')) {
     $ui[$nav].Add_Checked({ Show-EmiPage $this.Tag }.GetNewClosure())
 }
 
-$advNav = @('NavDisk','NavTweaks','NavPrivacy','NavPrivRecs','NavDebloat','NavApps','NavEset','NavStartup','NavProcess','NavVortex','NavSystem','NavLog')
+$advNav = @('NavDisk','NavTweaks','NavPrivacy','NavPrivRecs','NavDebloat','NavApps','NavEset','NavStartup','NavProcess','NavVortex','NavSystem','NavLog','NavStore')
 
 $ui.SwAdvanced.Add_Click({
     $script:Advanced = [bool]$ui.SwAdvanced.IsChecked
@@ -338,7 +342,7 @@ function Update-EmiHome {
     $ui.TbUndoCount.Text = "$(@(Get-EmiJournal).Count) cambios registrados"
 
     $ui.TbAdminBadge.Text = if (Test-EmiAdmin) { 'Ejecutando como administrador.' }
-                            else { 'SIN administrador: cierra y usa EmiToolkit.cmd.' }
+                            else { 'SIN administrador: cierra y usa AnotherToolbox.cmd.' }
 }
 
 function Update-EmiSystemPage {
@@ -433,7 +437,7 @@ $ui.BtnOneClick.Add_Click({
         $freed = 0; if ($r) { $freed = @($r)[-1] }
         [System.Windows.MessageBox]::Show(
             "Mantenimiento terminado.`n`nEspacio liberado: $(Format-EmiSize $freed)`n`nConviene reiniciar el equipo para que todo se aplique.",
-            'Emi Toolkit', 'OK', 'Information') | Out-Null
+            'Another''s Toolbox', 'OK', 'Information') | Out-Null
     }
 })
 
@@ -455,7 +459,7 @@ $ui.BtnDiskScan.Add_Click({
 
 $ui.BtnDiskClean.Add_Click({
     $sel = Get-EmiChecked $ui.LvClean
-    if ($sel.Count -eq 0) { [System.Windows.MessageBox]::Show('Analiza primero y marca que limpiar.','Emi Toolkit','OK','Information') | Out-Null; return }
+    if ($sel.Count -eq 0) { [System.Windows.MessageBox]::Show('Analiza primero y marca que limpiar.','Another''s Toolbox','OK','Information') | Out-Null; return }
 
     $risky = @($sel | Where-Object { $_.Category -eq 'Revisar' })
     if ($risky.Count -gt 0) {
@@ -484,7 +488,7 @@ $ui.BtnDiskDism.Add_Click({
 
 $ui.BtnScanFiles.Add_Click({
     $path = $ui.TxtScanPath.Text
-    if (-not (Test-Path -LiteralPath $path)) { [System.Windows.MessageBox]::Show('Esa carpeta no existe.','Emi Toolkit','OK','Warning') | Out-Null; return }
+    if (-not (Test-Path -LiteralPath $path)) { [System.Windows.MessageBox]::Show('Esa carpeta no existe.','Another''s Toolbox','OK','Warning') | Out-Null; return }
     $min = 100; [void][int]::TryParse($ui.TxtScanMin.Text, [ref]$min)
 
     Start-EmiWork -Label "Buscando archivos grandes..." -Parameters @{ Path = $path; Min = $min } -Work {
@@ -494,7 +498,7 @@ $ui.BtnScanFiles.Add_Click({
 
 $ui.BtnScanFolders.Add_Click({
     $path = $ui.TxtScanPath.Text
-    if (-not (Test-Path -LiteralPath $path)) { [System.Windows.MessageBox]::Show('Esa carpeta no existe.','Emi Toolkit','OK','Warning') | Out-Null; return }
+    if (-not (Test-Path -LiteralPath $path)) { [System.Windows.MessageBox]::Show('Esa carpeta no existe.','Another''s Toolbox','OK','Warning') | Out-Null; return }
     Start-EmiWork -Label 'Midiendo carpetas...' -Parameters @{ Path = $path } -Work {
         return ,(Find-EmiLargeFolders -Path $P.Path)
     } -OnDone { param($r) $ui.LvBig.ItemsSource = @($r)[-1] }
@@ -538,7 +542,7 @@ $ui.BtnTweakApply.Add_Click({
     } -OnDone {
         Update-EmiHome
         [System.Windows.MessageBox]::Show('Optimizacion aplicada. Algunos cambios necesitan reiniciar el Explorador o el equipo.',
-            'Emi Toolkit','OK','Information') | Out-Null
+            'Another''s Toolbox','OK','Information') | Out-Null
     }
 })
 
@@ -683,7 +687,7 @@ $ui.BtnVaultAdd.Add_Click({
     $email = $ui.TxtVaultEmail.Text.Trim()
     $pw    = $ui.TxtVaultPassword.Text
     if (-not $app -or -not $pw) {
-        [System.Windows.MessageBox]::Show('Rellena al menos el nombre del servicio y la contrasena.', 'Emi Toolkit', 'OK', 'Warning') | Out-Null
+        [System.Windows.MessageBox]::Show('Rellena al menos el nombre del servicio y la contrasena.', 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
         return
     }
     $id = Add-EmiVaultEntry -AppName $app -Email $email -Password $pw -Notes ''
@@ -781,7 +785,7 @@ $ui.BtnAppsScan.Add_Click({
 $ui.BtnAppsUninstall.Add_Click({
     $sel = @(Get-EmiChecked $ui.LvApps)
     if ($sel.Count -eq 0) {
-        [System.Windows.MessageBox]::Show('Analiza primero y marca que apps desinstalar.','Emi Toolkit','OK','Information') | Out-Null
+        [System.Windows.MessageBox]::Show('Analiza primero y marca que apps desinstalar.','Another''s Toolbox','OK','Information') | Out-Null
         return
     }
     $names = ($sel | ForEach-Object { $_.Name }) -join "`n - "
@@ -805,7 +809,7 @@ $ui.BtnAppsUninstall.Add_Click({
 $ui.BtnAppsClearCache.Add_Click({
     $sel = @(Get-EmiChecked $ui.LvApps)
     if ($sel.Count -eq 0) {
-        [System.Windows.MessageBox]::Show('Marca las apps cuya cache quieres limpiar.','Emi Toolkit','OK','Information') | Out-Null
+        [System.Windows.MessageBox]::Show('Marca las apps cuya cache quieres limpiar.','Another''s Toolbox','OK','Information') | Out-Null
         return
     }
     $ans = [System.Windows.MessageBox]::Show(
@@ -823,6 +827,92 @@ $ui.BtnAppsClearCache.Add_Click({
     } -OnDone {
         $ui.BtnAppsScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
         Update-EmiHome
+    }
+})
+
+# ======================================================================
+#                          ANOTHER STORE
+# ======================================================================
+
+$ui.BtnStoreOpenWeb.Add_Click({
+    Start-Process 'https://anotherstore.neocities.org/'
+    Write-EmiLog 'Another Store: navegador abierto.' Ok
+})
+
+$ui.BtnStoreSelectAll.Add_Click({
+    $checks = @(
+        $ui.ChkStoreAudio, $ui.ChkStoreDraw, $ui.ChkStoreFinance, $ui.ChkStoreHub,
+        $ui.ChkStoreMedia, $ui.ChkStorePhoto, $ui.ChkStorePixel, $ui.ChkStorePresent,
+        $ui.ChkStoreReader, $ui.ChkStoreVault, $ui.ChkStoreWriter
+    )
+    foreach ($c in $checks) { $c.IsChecked = $true }
+})
+
+$ui.BtnStoreUninstall.Add_Click({
+    $map = @{
+        ChkStoreAudio   = 'Another Suite Audio'
+        ChkStoreDraw    = 'Another Suite Draw'
+        ChkStoreFinance = 'Another Suite Finance'
+        ChkStoreHub     = 'Another Suite Hub'
+        ChkStoreMedia   = 'Another Suite Media'
+        ChkStorePhoto   = 'Another Suite Photo'
+        ChkStorePixel   = 'Another Suite Pixel'
+        ChkStorePresent = 'Another Suite Present'
+        ChkStoreReader  = 'Another Suite Reader'
+        ChkStoreVault   = 'Another Suite Vault'
+        ChkStoreWriter  = 'Another Suite Writer'
+    }
+    $selected = @()
+    foreach ($key in $map.Keys) {
+        if ($ui.$key.IsChecked) { $selected += $map[$key] }
+    }
+    if ($selected.Count -eq 0) {
+        [System.Windows.MessageBox]::Show(
+            'Marca al menos una app de Another Suite para desinstalar.',
+            'Another''s Toolbox', 'OK', 'Information') | Out-Null
+        return
+    }
+    $list = ($selected -join "`n - ")
+    $ans = [System.Windows.MessageBox]::Show(
+        "Se buscaran y desinstalaran $($selected.Count) apps de Another Suite:`n`n - $list`n`nContinuar?",
+        'Confirmar desinstalacion', 'YesNo', 'Warning')
+    if ($ans -ne 'Yes') { return }
+
+    Start-EmiWork -Label 'Desinstalando apps de Another Store...' -Parameters @{ Names = $selected } -Work {
+        $ok = 0; $fail = 0
+        foreach ($name in $P.Names) {
+            $found = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                                       'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                                       'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+                     Where-Object { $_.DisplayName -like "*$name*" } | Select-Object -First 1
+            if ($found -and $found.UninstallString) {
+                try {
+                    $cmd = $found.UninstallString
+                    if ($cmd -match '^".*"$') { $cmd = $cmd.Trim('"') }
+                    Start-Process -FilePath $cmd -ArgumentList '/S','/silent','/quiet' -Wait -ErrorAction Stop
+                    $ok++
+                    Write-EmiLog "Another Store: $name desinstalado." Ok
+                } catch {
+                    $fail++
+                    Write-EmiLog "Another Store: fallo al desinstalar $name — $($_.Exception.Message)" Error
+                }
+            } else {
+                $fail++
+                Write-EmiLog "Another Store: $name no encontrado en el registro." Warning
+            }
+        }
+        return @{ Ok = $ok; Fail = $fail }
+    } -OnDone {
+        $r = $args[0]
+        if ($r.Ok -gt 0) {
+            [System.Windows.MessageBox]::Show(
+                "$($r.Ok) app(s) desinstalada(s). $($r.Fail) no encontrada(s) o con error.",
+                'Another''s Toolbox', 'OK', 'Information') | Out-Null
+        } else {
+            [System.Windows.MessageBox]::Show(
+                'No se pudo desinstalar ninguna app. Puede que no esten instaladas.',
+                'Another''s Toolbox', 'OK', 'Warning') | Out-Null
+        }
     }
 })
 
@@ -962,7 +1052,7 @@ $ui.BtnVortexRemove.Add_Click({
 $ui.BtnVortexFullClean.Add_Click({
     $info = Get-EmiVortexInfo
     if (-not $info.Installed) {
-        [System.Windows.MessageBox]::Show('Vortex no esta instalado en este equipo.', 'Emi Toolkit', 'OK', 'Information') | Out-Null
+        [System.Windows.MessageBox]::Show('Vortex no esta instalado en este equipo.', 'Another''s Toolbox', 'OK', 'Information') | Out-Null
         return
     }
     $ans = [System.Windows.MessageBox]::Show(
@@ -1047,7 +1137,7 @@ $ui.BtnAnyOpen.Add_Click({
 
 $ui.BtnUndoAll.Add_Click({
     $c = @(Get-EmiJournal).Count
-    if ($c -eq 0) { [System.Windows.MessageBox]::Show('No hay cambios registrados.','Emi Toolkit','OK','Information') | Out-Null; return }
+    if ($c -eq 0) { [System.Windows.MessageBox]::Show('No hay cambios registrados.','Another''s Toolbox','OK','Information') | Out-Null; return }
     $ans = [System.Windows.MessageBox]::Show("Se revertiran $c cambios (registro, servicios, tareas y reglas de firewall). Continuar?",
         'Revertir todo', 'YesNo', 'Warning')
     if ($ans -ne 'Yes') { return }
@@ -1055,7 +1145,7 @@ $ui.BtnUndoAll.Add_Click({
     Start-EmiWork -Label 'Revirtiendo cambios...' -Work { return (Undo-EmiChanges) } -OnDone {
         Update-EmiHome
         [System.Windows.MessageBox]::Show('Cambios revertidos. Reinicia el equipo para que todo vuelva a su estado anterior.',
-            'Emi Toolkit','OK','Information') | Out-Null
+            'Another''s Toolbox','OK','Information') | Out-Null
     }
 })
 
@@ -1087,7 +1177,7 @@ $win.Add_Loaded({
 $win.Add_Closed({
     try { $timer.Stop() } catch { }
     if ($script:Worker) { try { $script:Worker.Stop(); $script:Worker.Dispose() } catch { } }
-    Write-EmiLog 'Emi Toolkit cerrado.' Info
+    Write-EmiLog 'Another''s Toolbox cerrado.' Info
 })
 
 [void]$win.ShowDialog()

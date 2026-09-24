@@ -1,7 +1,7 @@
 ﻿<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="Emi Toolkit" Height="760" Width="1180" MinHeight="620" MinWidth="980"
+        Title="Another's Toolbox" Height="760" Width="1180" MinHeight="620" MinWidth="980"
         WindowStartupLocation="CenterScreen" Background="Transparent"
         WindowStyle="None" AllowsTransparency="False"
         FontFamily="Segoe UI" TextOptions.TextFormattingMode="Ideal"
@@ -625,7 +625,7 @@
               </RadialGradientBrush>
             </Ellipse.Fill>
           </Ellipse>
-          <TextBlock Text="Emi Toolkit" DockPanel.Dock="Left" Margin="10,0,0,0" VerticalAlignment="Center"
+          <TextBlock Text="Another's Toolbox" DockPanel.Dock="Left" Margin="10,0,0,0" VerticalAlignment="Center"
                      FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Deep}"/>
           <TextBlock x:Name="TbHeaderHint" DockPanel.Dock="Left" Margin="12,0,0,0" VerticalAlignment="Center"
                      FontSize="11.5" Foreground="{StaticResource Muted}" Text="mantenimiento de equipos Windows 11"/>
@@ -760,6 +760,16 @@
                   <StackPanel Orientation="Horizontal">
                     <Viewbox Width="19" Height="19" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Data="{StaticResource icDoc}" Fill="{StaticResource GlossBlue}" Stroke="#B3FFFFFF" StrokeThickness="0.7"/><Path Data="{StaticResource icDocLines}" Stroke="#E6FFFFFF" StrokeThickness="1.4"/></Canvas></Viewbox>
                     <TextBlock Text="Registro y deshacer" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                  </StackPanel>
+                </RadioButton>
+
+                <TextBlock Text="ANOTHER STORE" Margin="24,14,0,4" FontSize="10.5"
+                           FontWeight="SemiBold" Foreground="{StaticResource Muted}"/>
+
+                <RadioButton x:Name="NavStore"    Style="{StaticResource Nav}" Tag="Store">
+                  <StackPanel Orientation="Horizontal">
+                    <Path Style="{StaticResource NavIcon}" Data="{StaticResource icGlobe}"/>
+                    <TextBlock Text="Another Store" Margin="10,0,0,0" VerticalAlignment="Center"/>
                   </StackPanel>
                 </RadioButton>
               </StackPanel>
@@ -1580,6 +1590,53 @@
           </Grid>
 
           <!-- ========================= REGISTRO ===================== -->
+          <Grid x:Name="PageStore" Visibility="Collapsed">
+            <StackPanel>
+              <TextBlock Text="Another Store" FontSize="22" FontWeight="SemiBold"
+                         Foreground="{StaticResource GlossBlue}" Margin="0,0,0,6"/>
+              <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,14"
+                         Text="Explora e instala las aplicaciones de Another Suite. Visita la tienda online o desinstala apps directamente desde aquí."/>
+
+              <Border Background="{StaticResource CardBg}" CornerRadius="8" Padding="16" Margin="0,0,0,16"
+                      BorderBrush="{StaticResource CardBorder}" BorderThickness="1">
+                <StackPanel>
+                  <TextBlock Text="Tienda Online" FontSize="15" FontWeight="SemiBold"
+                             Foreground="{StaticResource GlossBlue}" Margin="0,0,0,6"/>
+                  <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"
+                             Text="Visita anotherstore.neocities.org para descargar las últimas versiones y descubrir nuevas apps."/>
+                  <Button x:Name="BtnStoreOpenWeb" Content="Abrir Another Store en el navegador"
+                          Style="{StaticResource PrimaryBtn}" HorizontalAlignment="Left"/>
+                </StackPanel>
+              </Border>
+
+              <TextBlock Text="Desinstalar Apps de Another Suite" FontSize="15" FontWeight="SemiBold"
+                         Foreground="{StaticResource GlossBlue}" Margin="0,0,0,8"/>
+              <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"
+                         Text="Selecciona las aplicaciones que deseas desinstalar. Se buscarán por nombre en el registro de Windows y se ejecutará su desinstalador si está disponible."/>
+
+              <WrapPanel x:Name="StoreAppsPanel" Margin="0,0,0,14">
+                <CheckBox x:Name="ChkStoreAudio"  Content="Audio"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox x:Name="ChkStoreDraw"   Content="Draw"    Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox x:Name="ChkStoreFinance" Content="Finance" Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox x:Name="ChkStoreHub"    Content="Hub"     Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox x:Name="ChkStoreMedia"  Content="Media"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox x:Name="ChkStorePhoto"  Content="Photo"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox x:Name="ChkStorePixel"  Content="Pixel"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox x:Name="ChkStorePresent" Content="Present" Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox x:Name="ChkStoreReader" Content="Reader"  Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox x:Name="ChkStoreVault"  Content="Vault"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox x:Name="ChkStoreWriter" Content="Writer"  Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+              </WrapPanel>
+
+              <StackPanel Orientation="Horizontal">
+                <Button x:Name="BtnStoreUninstall" Content="Desinstalar seleccionadas"
+                        Style="{StaticResource DangerBtn}" Margin="0,0,10,0"/>
+                <Button x:Name="BtnStoreSelectAll" Content="Seleccionar todas"
+                        Style="{StaticResource SecondaryBtn}"/>
+              </StackPanel>
+            </StackPanel>
+          </Grid>
+
           <Grid x:Name="PageLog" Visibility="Collapsed">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto"/>
