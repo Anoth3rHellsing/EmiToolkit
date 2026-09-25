@@ -886,14 +886,14 @@ $ui.BtnStoreUninstall.Add_Click({
                     if ($cmd -match '^".*"$') { $cmd = $cmd.Trim('"') }
                     Start-Process -FilePath $cmd -ArgumentList '/S','/silent','/quiet' -Wait -ErrorAction Stop
                     $ok++
-                    Write-EmiLog "Another Store: $name desinstalado." Ok
+                    Write-EmiLog ('Another Store: ' + $name + ' desinstalado.') Ok
                 } catch {
                     $fail++
-                    Write-EmiLog "Another Store: fallo al desinstalar $name — $($_.Exception.Message)" Error
+                    Write-EmiLog ('Another Store: fallo al desinstalar ' + $name + ' — ' + $_.Exception.Message) Error
                 }
             } else {
                 $fail++
-                Write-EmiLog "Another Store: $name no encontrado en el registro." Warning
+                Write-EmiLog ('Another Store: ' + $name + ' no encontrado en el registro.') Warning
             }
         }
         return @{ Ok = $ok; Fail = $fail }
