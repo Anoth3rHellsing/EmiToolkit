@@ -60,9 +60,8 @@ if (-not $isAdmin) { Write-EmiLog 'Sin permisos de administrador: muchas accione
 
 # ------------------------------ XAML ----------------------------------
 $xamlPath = Join-Path $Root 'UI\MainWindow.xaml'
-[xml]$xaml = Get-Content -LiteralPath $xamlPath -Raw -Encoding UTF8
-$reader    = New-Object System.Xml.XmlNodeReader $xaml
-$win       = [Windows.Markup.XamlReader]::Load($reader)
+$xamlText = Get-Content -LiteralPath $xamlPath -Raw -Encoding UTF8
+$win = [Windows.Markup.XamlReader]::Parse($xamlText)
 
 function C { param([string] $Name) $win.FindName($Name) }
 
