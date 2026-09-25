@@ -482,6 +482,25 @@
       </Setter>
     </Style>
 
+    <!-- ==================== ANOTHER STORE RESOURCES ==================== -->
+    <SolidColorBrush x:Key="CardBg"     Color="#CCFFFFFF"/>
+    <SolidColorBrush x:Key="CardBorder" Color="#66FFFFFF"/>
+
+    <Style x:Key="PrimaryBtn" TargetType="Button" BasedOn="{StaticResource Gloss}">
+      <Setter Property="Background" Value="{StaticResource GlossBlue}"/>
+      <Setter Property="Padding" Value="14,7"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+
+    <Style x:Key="SecondaryBtn" TargetType="Button" BasedOn="{StaticResource Ghost}">
+      <Setter Property="Padding" Value="14,7"/>
+    </Style>
+
+    <Style x:Key="DangerBtn" TargetType="Button" BasedOn="{StaticResource GlossRedBtn}">
+      <Setter Property="Padding" Value="14,7"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+
     <Style x:Key="Combo" TargetType="ComboBox">
       <Setter Property="Height" Value="34"/>
       <Setter Property="Foreground" Value="{StaticResource Deep}"/>
