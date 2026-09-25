@@ -776,7 +776,7 @@ $ui.BtnAppsScan.Add_Click({
             [void]$list.Add($i)
         }
         $ui.LvApps.ItemsSource = $list
-        Write-EmiLog "$($list.Count) apps instaladas encontradas." Ok
+        Write-EmiLog ($list.Count.ToString() + ' apps instaladas encontradas.') Ok
     }
 })
 
