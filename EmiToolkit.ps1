@@ -18,7 +18,7 @@ $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIde
 if (-not $isAdmin -and -not $NoElevate) {
     try {
         Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList @(
-            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-WindowStyle', 'Hidden',
             '-File', "`"$($MyInvocation.MyCommand.Path)`""
         )
         exit
