@@ -8,7 +8,7 @@ rem  Logs: Data\launcher.log y Data\runtime-error.log
 rem ====================================================================
 setlocal
 set "HERE=%~dp0"
-set "PS1=%HERE%AnotherToolbox.ps1"
+set "PS1=%HERE%EmiToolkit.ps1"
 set "LOGDIR=%HERE%Data"
 
 rem Crear carpeta Data si no existe
