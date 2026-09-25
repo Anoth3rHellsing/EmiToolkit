@@ -2,7 +2,7 @@
     Another's Toolbox - mantenimiento de equipos Windows 11
     Interfaz WPF con la transparencia nativa de Windows (estilo Frutiger Aero).
 
-    Ejecutar:  AnotherToolbox.cmd   (pide permisos de administrador)
+    Ejecutar:  EmiToolkit.cmd   (pide permisos de administrador)
 #>
 
 [CmdletBinding()]
@@ -10,6 +10,19 @@ param([switch] $NoElevate)
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# --------------------------- Error Handler Global ---------------------
+function Write-RuntimeError {
+    param([string] $Message)
+    try {
+        $logDir = Join-Path $Root 'Data'
+        if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+        $logPath = Join-Path $logDir 'runtime-error.log'
+        $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+        $entry = "[$timestamp] $Message`r`n"
+        Add-Content -Path $logPath -Value $entry -Encoding UTF8
+    } catch { }
+}
 
 # --------------------------- Elevacion --------------------------------
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -31,6 +44,7 @@ if (-not $isAdmin -and -not $NoElevate) {
     }
 }
 
+try {
 # --------------------------- Ensamblados ------------------------------
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Xaml, System.Windows.Forms
 
@@ -1172,3 +1186,13 @@ $win.Add_Closed({
 })
 
 [void]$win.ShowDialog()
+
+} catch {
+    $errMsg = $_.Exception.Message
+    $errLine = $_.InvocationInfo.ScriptLineNumber
+    $errFile = $_.InvocationInfo.ScriptName
+    $fullMsg = 'Error al iniciar EmiToolkit:' + "`n`n" + $errMsg + "`n`n" + 'Línea: ' + $errLine + "`n" + 'en ' + $errFile
+    Write-RuntimeError -Message $fullMsg
+    [void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
+    [System.Windows.Forms.MessageBox]::Show($fullMsg + "`n`nLog: " + (Join-Path $Root 'Data\runtime-error.log'), 'EmiToolkit Error', 'OK', 'Error') | Out-Null
+}
