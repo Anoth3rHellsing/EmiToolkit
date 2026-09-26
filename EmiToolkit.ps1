@@ -230,7 +230,7 @@ $pages = @{
     Home    = $ui.PageHome;    AnyDesk = $ui.PageAnyDesk; Disk    = $ui.PageDisk
     Tweaks  = $ui.PageTweaks;  Privacy = $ui.PagePrivacy; PrivRecs = $ui.PagePrivRecs; Debloat = $ui.PageDebloat; Apps = $ui.PageApps; Eset    = $ui.PageEset
     Startup = $ui.PageStartup; Process = $ui.PageProcess; Vortex  = $ui.PageVortex
-    System  = $ui.PageSystem;  Log     = $ui.PageLog
+    System  = $ui.PageSystem;  Log     = $ui.PageLog;   Store   = $ui.PageStore
 }
 
 function Show-EmiPage {
