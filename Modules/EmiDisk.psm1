@@ -53,7 +53,7 @@ function Get-EmiCleanupTargets {
         @{ Id='NvCache';    Name='Cache de shaders NVIDIA / DirectX'; Path="$la\NVIDIA\DXCache";                                     Safe=$false; Info='Los juegos daran tirones mientras se vuelven a compilar' }
         @{ Id='DxCache';    Name='Cache de shaders D3D';              Path="$la\D3DSCache";                                          Safe=$false; Info='Los juegos daran tirones mientras se vuelven a compilar' }
         @{ Id='Downloads';  Name='Carpeta Descargas (revisar antes)'; Path="$u\Downloads";                                           Safe=$false; Info='OJO: son archivos del usuario' }
-        @{ Id='WinOld';     Name='Windows.old (Windows anterior)';    Path="$env:SystemDrive\Windows.old";                           Safe=$false; Info='Elimina la opcion de volver a la version previa' }
+        @{ Id='WinOld';     Name='Windows.old (Windows anterior)';    Path="$env:SystemDrive\Windows.old";                           Safe=$false; Info='Elimina la opcion de volver a la version previa; se borra con el Liberador de espacio de Windows' }
     )
 
     $list = @()
@@ -279,9 +279,8 @@ function Invoke-EmiCleanup {
                     Write-EmiLog "$($t.Name): $(Format-EmiSize $f)" Ok
                 }
                 'WinOld' {
-                    $f = Clear-EmiPath $t.Path -DeleteRoot
+                    $f = Remove-EmiWindowsOld -Path $t.Path
                     $freed += $f
-                    Write-EmiLog "Windows.old eliminado: $(Format-EmiSize $f)" Ok
                 }
                 default {
                     $f = Clear-EmiPath $t.Path
@@ -298,12 +297,91 @@ function Invoke-EmiCleanup {
     return $freed
 }
 
+function Remove-EmiWindowsOld {
+    <#  Windows.old es de TrustedInstaller: Remove-Item como administrador lo
+        deja a medias (sin volver atras y sin liberar casi nada). Se usa el
+        Liberador de espacio, que es lo que hace Windows ("Instalaciones
+        anteriores de Windows"), con /sagerun (Microsoft, "Automating Disk
+        Cleanup"); StateFlags se pone solo para esa categoria y se quita al
+        terminar. Despues se mide lo que queda y se dice tal cual. #>
+    param([Parameter(Mandatory)][string] $Path)
+    if (-not (Test-Path -LiteralPath $Path)) { Write-EmiLog 'No hay Windows.old.' Ok; return 0 }
+    $before = Get-EmiFolderSize $Path
+    $vc   = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches\Previous Installations'
+    $flag = 'StateFlags0742'
+    $cm   = Join-Path $env:SystemRoot 'System32\cleanmgr.exe'
+    if ((Test-Path -LiteralPath $cm) -and (Test-Path -LiteralPath $vc)) {
+        $old = (Get-ItemProperty -LiteralPath $vc -Name $flag -ErrorAction SilentlyContinue).$flag
+        try {
+            New-ItemProperty -LiteralPath $vc -Name $flag -Value 2 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+            Write-EmiLog 'Borrando Windows.old con el Liberador de espacio de Windows (puede tardar)...' Step
+            $p = Start-Process -FilePath $cm -ArgumentList '/sagerun:742' -PassThru -WindowStyle Hidden
+            if (-not $p.WaitForExit(3600000)) { Write-EmiLog 'El Liberador de espacio sigue trabajando despues de una hora; se deja terminar solo.' Warn }
+        } catch { Write-EmiLog "Liberador de espacio: $($_.Exception.Message)" Warn }
+        finally {
+            try {
+                if ($null -ne $old) { New-ItemProperty -LiteralPath $vc -Name $flag -Value $old -PropertyType DWord -Force -ErrorAction Stop | Out-Null }
+                else { Remove-ItemProperty -LiteralPath $vc -Name $flag -Force -ErrorAction Stop }
+            } catch { }
+        }
+    } else {
+        # Sin Liberador: se intenta, sin seguir uniones, y se informa de lo que quede
+        Write-EmiLog 'No esta el Liberador de espacio: se borra Windows.old archivo por archivo.' Warn
+        try { Remove-EmiTreeSafe -Path $Path } catch { }
+    }
+    $left = if (Test-Path -LiteralPath $Path) { Get-EmiFolderSize $Path } else { 0 }
+    $freed = [math]::Max(0, $before - $left)
+    if ($left -eq 0 -and -not (Test-Path -LiteralPath $Path)) {
+        Write-EmiLog "Windows.old eliminado: $(Format-EmiSize $freed)" Ok
+    } else {
+        Write-EmiLog "Windows.old no se borro entero: liberado $(Format-EmiSize $freed), quedan $(Format-EmiSize $left). Ya no se puede volver a la version anterior. Para quitar el resto: Configuracion > Sistema > Almacenamiento > Archivos temporales > Instalaciones anteriores de Windows." Warn
+    }
+    return $freed
+}
+
+function Get-EmiComponentStoreAdvice {
+    <#  Logica pura sobre la salida de DISM /AnalyzeComponentStore: la ultima
+        linea "clave : valor" es "Limpieza recomendada : Si/No" en todos los
+        idiomas. Devuelve $true, $false o $null (no se entiende). La consola
+        de Windows PowerShell puede estropear la tilde de "Si", asi que se mira
+        la primera letra: Y/S/O/J = si (Yes, Si, Sim, Oui, Ja); N = no. #>
+    param([string[]] $Lines)
+    $last = $null
+    foreach ($l in $Lines) { if ("$l" -match ':\s*(\S+)\s*$' -and "$l" -notmatch '^\s*\[') { $last = $Matches[1] } }
+    if (-not $last) { return $null }
+    $c = $last.Substring(0, 1).ToUpperInvariant()
+    if ($c -in @('Y', 'S', 'O', 'J')) { return $true }
+    if ($c -eq 'N') { return $false }
+    return $null
+}
+
 function Invoke-EmiComponentCleanup {
-    <#  DISM: limpia versiones antiguas de componentes (WinSxS). Lento. #>
-    Write-EmiLog 'Ejecutando limpieza de componentes (DISM). Puede tardar varios minutos...' Step
-    Set-EmiStatus 'Limpiando WinSxS con DISM...'
+    <#  DISM: limpia versiones antiguas de componentes (WinSxS). Primero
+        /AnalyzeComponentStore y solo limpia si DISM lo recomienda (o con
+        -Force). /ResetBase solo con -ResetBase: impide desinstalar las
+        actualizaciones ya instaladas (Microsoft, "Clean up the WinSxS
+        folder"; ideas.md n.6). Lento. #>
+    param([switch] $ResetBase, [switch] $Force)
     try {
-        $p = Start-Process -FilePath 'dism.exe' -ArgumentList '/Online','/Cleanup-Image','/StartComponentCleanup','/Quiet','/NoRestart' -Wait -PassThru -WindowStyle Hidden
+        if (-not $Force) {
+            Write-EmiLog 'Analizando el almacen de componentes (DISM /AnalyzeComponentStore)...' Step
+            Set-EmiStatus 'Analizando WinSxS con DISM...'
+            $out = @(& dism.exe /Online /Cleanup-Image /AnalyzeComponentStore 2>&1 | ForEach-Object { "$_" })
+            $code = $LASTEXITCODE
+            $advice = if ($code -eq 0) { Get-EmiComponentStoreAdvice -Lines $out } else { $null }
+            if ($code -ne 0) { Write-EmiLog "El analisis de DISM devolvio el codigo $code; se limpia igualmente." Warn }
+            elseif ($advice -eq $false) { Write-EmiLog 'DISM dice que no hace falta limpiar los componentes: no se toca nada.' Ok; return $true }
+            elseif ($null -eq $advice) { Write-EmiLog 'No se pudo leer la recomendacion de DISM; se limpia igualmente.' Warn }
+        }
+        $dargs = @('/Online', '/Cleanup-Image', '/StartComponentCleanup')
+        if ($ResetBase) {
+            $dargs += '/ResetBase'
+            Write-EmiLog 'Con /ResetBase: despues ya no se podra desinstalar ninguna actualizacion instalada.' Warn
+        }
+        $dargs += @('/Quiet', '/NoRestart')
+        Write-EmiLog 'Ejecutando limpieza de componentes (DISM). Puede tardar varios minutos...' Step
+        Set-EmiStatus 'Limpiando WinSxS con DISM...'
+        $p = Start-Process -FilePath 'dism.exe' -ArgumentList $dargs -Wait -PassThru -WindowStyle Hidden
         if ($p.ExitCode -eq 0) { Write-EmiLog 'Limpieza de componentes completada.' Ok; return $true }
         Write-EmiLog "DISM devolvio el codigo $($p.ExitCode)." Warn
         return $false
