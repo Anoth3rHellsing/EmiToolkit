@@ -1258,7 +1258,7 @@ function Invoke-EmiProcAction {
     if ($sel.Count -eq 0) { return }
 
     $names = ($sel | ForEach-Object { $_.Name }) -join ', '
-    $extra = if ($Block) { "`n`n" + 'Ademas se creara una regla de firewall que les corta Internet (reversible desde Registro y deshacer).' } else { '' }
+    $extra = if ($Block) { "`n`n" + 'Ademas, a los procesos de la categoria Telemetria se les cortara Internet con una regla de firewall (reversible desde Registro y deshacer). Al resto solo se les cierra.' } else { '' }
     $procMsg = 'Se cerraran: ' + $names + $extra + "`n`n" + 'Guarda tu trabajo antes. Continuar?'
     $ans = [System.Windows.MessageBox]::Show($procMsg, 'Confirmar', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
