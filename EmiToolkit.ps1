@@ -641,7 +641,7 @@ $ui.BtnVaultUnlock.Add_Click({
         Write-EmiLog 'Almacen de contrasenas desbloqueado.' Ok
         Update-EmiVaultUI
     } else {
-        Write-EmiLog 'No se pudo verificar con Windows Hello.' Warn
+        Write-EmiLog 'No se pudo desbloquear el almacen de contrasenas (detalles arriba).' Warn
     }
 })
 
@@ -735,9 +735,9 @@ $ui.BtnVaultDelete.Add_Click({
     $delMsg = 'Eliminar la entrada ''' + $sel.AppName + '''? Esta accion no se puede deshacer.'
     $ans = [System.Windows.MessageBox]::Show($delMsg, 'Confirmar', 'YesNo', 'Warning')
     if ($ans -ne 'Yes') { return }
-    Remove-EmiVaultEntry -Id $sel.Id
+    $removed = Remove-EmiVaultEntry -Id $sel.Id
     Update-EmiVaultUI
-    Write-EmiLog ('Entrada ''' + $sel.AppName + ''' eliminada.') Ok
+    if ($removed) { Write-EmiLog ('Entrada ''' + $sel.AppName + ''' eliminada.') Ok }
 })
 
 # ======================================================================

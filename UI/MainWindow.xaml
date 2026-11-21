@@ -1383,7 +1383,7 @@
                       <StackPanel Grid.Column="0">
                         <TextBlock Style="{StaticResource H2}" Text="Almacen local de contrasenas"/>
                         <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
-                                   Text="Guarda contrasenas cifradas con tu cuenta de Windows. Se desbloquea con Windows Hello (huella, PIN o rostro). Los datos nunca salen de este equipo."/>
+                                   Text="Guarda contrasenas en Data\vault.dat, cifradas con DPAPI de tu usuario de Windows: solo ese usuario, en este equipo, puede descifrarlas, y cualquier programa que se ejecute con tu sesion tambien podria. Windows Hello (huella, PIN o rostro) se pide para abrirlas aqui, pero no forma parte del cifrado. Si la carpeta esta en OneDrive, el archivo cifrado se sincroniza."/>
                       </StackPanel>
                       <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0,0,0">
                         <Button x:Name="BtnVaultUnlock" Style="{StaticResource GlossGreenBtn}"
