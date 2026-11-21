@@ -151,6 +151,57 @@ function Get-EmiFolderSize {
     } catch { return 0 }
 }
 
+function Split-EmiCommandLine {
+    <#  Separa una linea de comandos de Windows en ejecutable y argumentos:
+          '"C:\Program Files\X\Uninstall X.exe" /currentuser' -> ruta | /currentuser
+          'MsiExec.exe /X{GUID}'                              -> MsiExec.exe | /X{GUID}
+          'C:\Program Files\X\unins000.exe'                   -> ruta (con espacios) | '' #>
+    param([Parameter(Mandatory)][string] $CommandLine)
+    $s = $CommandLine.Trim()
+    if ($s.StartsWith('"')) {
+        $end = $s.IndexOf('"', 1)
+        if ($end -gt 0) {
+            return [pscustomobject]@{ FilePath = $s.Substring(1, $end - 1); Arguments = $s.Substring($end + 1).Trim() }
+        }
+        return [pscustomobject]@{ FilePath = $s.Trim('"'); Arguments = '' }
+    }
+    # Sin comillas la ruta puede llevar espacios: termina en el primer .exe
+    $m = [regex]::Match($s, '^(.+?\.exe)(?:\s+(.*))?$', 'IgnoreCase')
+    if ($m.Success) {
+        return [pscustomobject]@{ FilePath = $m.Groups[1].Value; Arguments = $m.Groups[2].Value.Trim() }
+    }
+    $sp = $s.IndexOf(' ')
+    if ($sp -gt 0) {
+        return [pscustomobject]@{ FilePath = $s.Substring(0, $sp); Arguments = $s.Substring($sp + 1).Trim() }
+    }
+    return [pscustomobject]@{ FilePath = $s; Arguments = '' }
+}
+
+function Get-EmiUninstallCommand {
+    <#  Ejecutable y argumentos para desinstalar en silencio una entrada de
+        ...\Uninstall. Usa QuietUninstallString si existe; si no, separa
+        UninstallString y anade el modo silencioso de cada instalador. #>
+    param([string] $QuietUninstallString, [string] $UninstallString)
+    if ($QuietUninstallString) { return Split-EmiCommandLine $QuietUninstallString }
+    if (-not $UninstallString) { throw 'La entrada no tiene UninstallString.' }
+
+    $c    = Split-EmiCommandLine $UninstallString
+    $leaf = ($c.FilePath -split '[\\/]')[-1]
+    if ($leaf -match '^msiexec(\.exe)?$') {
+        # MSI: /I abre el asistente de mantenimiento; se pide /X y sin interfaz
+        $a = $c.Arguments -replace '(?i)(^|\s)/I(?=\s*\{)', '$1/X'
+        if ($a -notmatch '(?i)(^|\s)/q') { $a = ($a + ' /qn /norestart').Trim() }
+        $c.Arguments = $a
+    } elseif ($leaf -match '^unins\d+\.exe$') {
+        # Inno Setup
+        if ($c.Arguments -notmatch '(?i)/(very)?silent') { $c.Arguments = ($c.Arguments + ' /VERYSILENT /SUPPRESSMSGBOXES /NORESTART').Trim() }
+    } else {
+        # NSIS (electron-builder escribe '"...\Uninstall X.exe" /currentuser')
+        if ($c.Arguments -notmatch '(?i)(^|\s)/S(\s|$)') { $c.Arguments = ($c.Arguments + ' /S').Trim() }
+    }
+    return $c
+}
+
 # --------------------- Diario reversible (undo) ----------------------
 # El diario es un archivo JSON Lines (Data\undo-journal.jsonl): una entrada
 # por linea, y cada cambio solo anade una linea al final. Antes era un array

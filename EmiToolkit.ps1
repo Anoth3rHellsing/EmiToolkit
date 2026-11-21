@@ -893,11 +893,16 @@ $ui.BtnStoreUninstall.Add_Click({
                                        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
                                        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
                      Where-Object { $_.DisplayName -like "*$name*" } | Select-Object -First 1
-            if ($found -and $found.UninstallString) {
+            if ($found -and ($found.QuietUninstallString -or $found.UninstallString)) {
                 try {
-                    $cmd = $found.UninstallString
-                    if ($cmd -match '^".*"$') { $cmd = $cmd.Trim('"') }
-                    Start-Process -FilePath $cmd -ArgumentList '/S','/silent','/quiet' -Wait -ErrorAction Stop
+                    $u = Get-EmiUninstallCommand -QuietUninstallString $found.QuietUninstallString -UninstallString $found.UninstallString
+                    if ($u.Arguments) {
+                        $proc = Start-Process -FilePath $u.FilePath -ArgumentList $u.Arguments -Wait -PassThru -ErrorAction Stop
+                    } else {
+                        $proc = Start-Process -FilePath $u.FilePath -Wait -PassThru -ErrorAction Stop
+                    }
+                    # 3010/1641: MSI pide reiniciar, pero desinstalo bien
+                    if ($proc.ExitCode -notin @(0, 3010, 1641)) { throw ('el desinstalador devolvio el codigo ' + $proc.ExitCode) }
                     $ok++
                     Write-EmiLog ('Another Store: ' + $name + ' desinstalado.') Ok
                 } catch {
@@ -906,14 +911,14 @@ $ui.BtnStoreUninstall.Add_Click({
                 }
             } else {
                 $fail++
-                Write-EmiLog ('Another Store: ' + $name + ' no encontrado en el registro.') Warning
+                Write-EmiLog ('Another Store: ' + $name + ' no encontrado en el registro.') Warn
             }
         }
         return @{ Ok = $ok; Fail = $fail }
     } -OnDone {
         $r = $args[0]
         if ($r.Ok -gt 0) {
-            $storeResultMsg = $r.Ok + ' app(s) desinstalada(s). ' + $r.Fail + ' no encontrada(s) o con error.'
+            $storeResultMsg = [string]$r.Ok + ' app(s) desinstalada(s). ' + $r.Fail + ' no encontrada(s) o con error.'
             [System.Windows.MessageBox]::Show($storeResultMsg, 'Another''s Toolbox', 'OK', 'Information') | Out-Null
         } else {
             [System.Windows.MessageBox]::Show(
