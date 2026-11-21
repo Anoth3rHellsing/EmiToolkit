@@ -95,14 +95,20 @@ function Invoke-EmiDebloatItem {
     $feat = $script:OptionalFeatures | Where-Object { $_.Id -eq $Id }
     if ($feat) {
         try {
+            # Estado previo, para que deshacer lo deje como estaba (y no al reves)
+            $before = $null
+            try { $before = [string](Get-WindowsOptionalFeature -Online -FeatureName $feat.Feature -ErrorAction Stop).State } catch { }
+            $wasOn = $before -in @('Enabled', 'EnablePending')
             if ($feat.Action -eq 'Enable') {
-                Enable-WindowsOptionalFeature -Online -FeatureName $feat.Feature -NoRestart -WarningAction SilentlyContinue | Out-Null
+                Enable-WindowsOptionalFeature -Online -FeatureName $feat.Feature -NoRestart -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
                 Write-EmiLog "$($feat.Name) activado." Ok
             } else {
-                Disable-WindowsOptionalFeature -Online -FeatureName $feat.Feature -NoRestart -WarningAction SilentlyContinue | Out-Null
+                Disable-WindowsOptionalFeature -Online -FeatureName $feat.Feature -NoRestart -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
                 Write-EmiLog "$($feat.Name) desactivado." Ok
             }
-            Add-EmiJournalEntry @{ Kind='Command'; Undo="Write-EmiLog 'Revierte $($feat.Name) manualmente desde Panel de Control > Caracteristicas de Windows' Warn"; Module=$M }
+            if ($before -and ($wasOn -ne ($feat.Action -eq 'Enable'))) {
+                Add-EmiJournalEntry @{ Kind='Command'; Action='WindowsFeature'; Feature=$feat.Feature; OldState=$before; Module=$M }
+            }
             $n++
         } catch {
             Write-EmiLog "$($feat.Name): $($_.Exception.Message)" Warn
@@ -144,8 +150,12 @@ function Remove-EmiAppxPackage {
         [string] $Module = 'Debloat'
     )
 
-    # 1. Verificar si esta instalada para el usuario actual
-    $pkg = Get-AppxPackage -Name $PackageFamilyName -ErrorAction SilentlyContinue
+    # 1. Verificar si esta instalada para el usuario actual. La tabla guarda el
+    #    PackageFamilyName (Nombre_IdEditor), que Get-AppxPackage -Name no reconoce:
+    #    se busca por familia y, si no, por nombre.
+    $pkg = Get-AppxPackage -ErrorAction SilentlyContinue |
+           Where-Object { $_.PackageFamilyName -eq $PackageFamilyName -or $_.Name -eq $PackageFamilyName } |
+           Select-Object -First 1
     if (-not $pkg) {
         Write-EmiLog "$PackageFamilyName no esta instalada; omitida." Info
         return $false
@@ -158,18 +168,21 @@ function Remove-EmiAppxPackage {
 
         # 3. Remover provisioned package (evita reinstalacion en updates)
         $prov = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
-                Where-Object { $_.PackageName -like "*$PackageFamilyName*" }
+                Where-Object { $_.DisplayName -eq $pkg.Name }
         if ($prov) {
             Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction SilentlyContinue | Out-Null
             Write-EmiLog "$PackageFamilyName removida de provisioned packages." Ok
         }
 
-        # 4. Journal entry con comando de reinstalacion
+        # 4. Journal: solo datos. Undo-EmiChanges lo vuelve a registrar con
+        #    Add-AppxPackage -Register si el paquete sigue en disco (un
+        #    PackageFamilyName no es un id de winget).
         Add-EmiJournalEntry @{
-            Kind        = 'Command'
-            Undo        = "winget install --id $PackageFamilyName --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null; Write-EmiLog 'Intenta reinstalar $PackageFamilyName via winget. Si falla, busca en Microsoft Store.' Info"
-            Module      = $Module
-            PackageName = $PackageFamilyName
+            Kind              = 'Command'
+            Action            = 'AppxReinstall'
+            PackageName       = $pkg.Name
+            PackageFamilyName = $pkg.PackageFamilyName
+            Module            = $Module
         }
 
         return $true

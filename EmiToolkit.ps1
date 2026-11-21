@@ -1148,8 +1148,14 @@ $ui.BtnUndoAll.Add_Click({
 
     Start-EmiWork -Label 'Revirtiendo cambios...' -Work { return (Undo-EmiChanges) } -OnDone {
         Update-EmiHome
-        [System.Windows.MessageBox]::Show('Cambios revertidos. Reinicia el equipo para que todo vuelva a su estado anterior.',
-            'Another''s Toolbox','OK','Information') | Out-Null
+        $left = @(Get-EmiJournal).Count
+        if ($left -gt 0) {
+            $undoDone = 'Se revirtieron ' + [string](@($args[0])[-1]) + ' cambios. ' + $left + ' no se pudieron revertir y siguen registrados (detalles en el registro). Reinicia el equipo y vuelve a intentarlo.'
+            [System.Windows.MessageBox]::Show($undoDone, 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
+        } else {
+            [System.Windows.MessageBox]::Show('Cambios revertidos. Reinicia el equipo para que todo vuelva a su estado anterior.',
+                'Another''s Toolbox','OK','Information') | Out-Null
+        }
     }
 })
 
