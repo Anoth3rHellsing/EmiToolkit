@@ -207,3 +207,14 @@ anteriores la ventana simplemente se ve opaca, todo lo demás funciona igual.
 ---
 
 Fuente de los datos de red de ESET: artículo **KB332**, revisión del 24-jul-2026.
+
+---
+
+## Versión para Mac
+
+En la carpeta [`mac/`](mac/LEEME.md) hay **Another's Toolbox para Mac**: busca
+lo que llena «Datos del sistema» (cachés, registros, instantáneas de Time
+Machine, Xcode, Docker, Homebrew, copias de iPhone…), enseña cuánto ocupa cada
+cosa y, solo si se lo pides, lo manda a la Papelera preguntando antes. Doble
+clic en `mac/Another Toolbox.command`. Detalles y límites en
+[`mac/LEEME.md`](mac/LEEME.md).
