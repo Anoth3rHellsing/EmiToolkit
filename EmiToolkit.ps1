@@ -15,7 +15,11 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 function Write-RuntimeError {
     param([string] $Message)
     try {
-        $logDir = Join-Path $Root 'Data'
+        # La carpeta de datos protegida de EmiCore (%ProgramData%\EmiToolkit); si
+        # el error llega antes de cargarla, %LOCALAPPDATA%, nunca la carpeta de la app.
+        $logDir = $null
+        if (Get-Command Get-EmiDataDir -ErrorAction SilentlyContinue) { $logDir = Get-EmiDataDir }
+        if (-not $logDir) { $logDir = Join-Path $env:LOCALAPPDATA 'EmiToolkit' }
         if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
         $logPath = Join-Path $logDir 'runtime-error.log'
         $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
@@ -1170,7 +1174,7 @@ $ui.BtnUndoAll.Add_Click({
     }
 })
 
-$ui.BtnOpenLog.Add_Click({ Start-Process explorer.exe (Join-Path $Root 'Data') })
+$ui.BtnOpenLog.Add_Click({ Start-Process explorer.exe (Get-EmiDataDir) })
 
 # ======================================================================
 #                        VENTANA Y ARRANQUE
@@ -1210,5 +1214,5 @@ $win.Add_Closed({
     $fullMsg = 'Error al iniciar EmiToolkit:' + "`n`n" + $errMsg + "`n`n" + 'Línea: ' + $errLine + "`n" + 'en ' + $errFile
     Write-RuntimeError -Message $fullMsg
     [void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
-    [System.Windows.Forms.MessageBox]::Show($fullMsg + "`n`nLog: " + (Join-Path $Root 'Data\runtime-error.log'), 'EmiToolkit Error', 'OK', 'Error') | Out-Null
+    [System.Windows.Forms.MessageBox]::Show($fullMsg + "`n`nLog: " + $(try { Join-Path (Get-EmiDataDir) 'runtime-error.log' } catch { Join-Path $env:LOCALAPPDATA 'EmiToolkit\runtime-error.log' }), 'EmiToolkit Error', 'OK', 'Error') | Out-Null
 }

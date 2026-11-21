@@ -73,13 +73,135 @@ public static class EmiNative
 
 # --------------------------- Inicializacion --------------------------
 
+# Los datos de la maquina (diario de deshacer, copia de hosts y logs) ya no
+# viven en <carpeta de la app>\Data: esa carpeta suele ser escribible por
+# usuarios sin privilegios (C:\EmiToolkit, Descargas, OneDrive) y el proceso
+# elevado obedecia lo que hubiera en el diario. Ahora:
+#   - elevado:    %ProgramData%\EmiToolkit, ACL solo Administradores + SYSTEM,
+#                 protegida frente a herencia;
+#   - sin elevar: %LOCALAPPDATA%\EmiToolkit (solo afecta a ese usuario).
+# Lo que hubiera en el Data antiguo se migra una vez, validando cada entrada.
+
+$script:DataDir   = $null
+$script:OldData   = $null
+$script:SidAdmins = 'S-1-5-32-544'
+$script:SidSystem = 'S-1-5-18'
+# SID que pueden escribir sin que eso sea un riesgo: SYSTEM, Administradores,
+# TrustedInstaller y CREATOR OWNER (solo se hereda a lo que crea quien ya podia).
+$script:TrustedSids = @(
+    'S-1-5-18', 'S-1-5-32-544', 'S-1-3-0',
+    'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'
+)
+
+function Test-EmiWindows { return ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) }
+
+function Get-EmiUntrustedWriters {
+    <#  Devuelve los SID (no administradores) que pueden modificar $Path:
+        ACE Allow con derechos de escritura, borrado o cambio de ACL/propietario,
+        o un propietario que no es de confianza (el propietario reescribe la DACL).
+        Si no se puede leer la ACL, devuelve '?' (se trata como no fiable). #>
+    param([Parameter(Mandatory)][string] $Path)
+    if (-not (Test-EmiWindows)) { return @() }
+    try {
+        $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+        $out = New-Object System.Collections.ArrayList
+        # WriteData|AppendData|WriteEA|DeleteChild|WriteAttributes|Delete|WriteDac|WriteOwner|GenericAll|GenericWrite
+        $mask = 0x2 -bor 0x4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000
+        $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+        if ($script:TrustedSids -notcontains $owner) { [void]$out.Add($owner) }
+        foreach ($r in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+            if ($r.AccessControlType -ne 'Allow') { continue }
+            if (($r.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
+            $sid = $r.IdentityReference.Value
+            if ($script:TrustedSids -contains $sid) { continue }
+            if (([int64]$r.FileSystemRights -band $mask) -ne 0 -and -not $out.Contains($sid)) { [void]$out.Add($sid) }
+        }
+        return $out.ToArray()
+    } catch { return @('?') }
+}
+
+function Set-EmiAdminOnlyAcl {
+    <#  ACL explicita y protegida: Administradores y SYSTEM con control total,
+        propietario Administradores. Nada heredado de la carpeta padre. #>
+    param([Parameter(Mandatory)][string] $Path)
+    if (-not (Test-EmiWindows)) { return $true }
+    try {
+        $isDir = Test-Path -LiteralPath $Path -PathType Container
+        $sec = if ($isDir) { New-Object System.Security.AccessControl.DirectorySecurity } else { New-Object System.Security.AccessControl.FileSecurity }
+        $sec.SetAccessRuleProtection($true, $false)
+        $inh = if ($isDir) { [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit' } else { [Security.AccessControl.InheritanceFlags]::None }
+        foreach ($s in @($script:SidAdmins, $script:SidSystem)) {
+            $sid = New-Object Security.Principal.SecurityIdentifier($s)
+            $sec.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', $inh, 'None', 'Allow')))
+        }
+        $sec.SetOwner((New-Object Security.Principal.SecurityIdentifier($script:SidAdmins)))
+        Set-Acl -LiteralPath $Path -AclObject $sec -ErrorAction Stop
+        return $true
+    } catch {
+        Write-EmiLog "No se pudo proteger la ACL de $Path : $($_.Exception.Message)" Warn
+        return $false
+    }
+}
+
+function Initialize-EmiDataDir {
+    <#  Crea (o repara) la carpeta de datos protegida. Si ya existia y alguien
+        sin privilegios podia escribir en ella, su contenido no es de fiar: se
+        aparta con la extension .no-fiable y no se usa. #>
+    param([string] $Path)
+    $isWin = Test-EmiWindows
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        # Una union o enlace plantado redirigiria el diario a otra carpeta: se
+        # borra el enlace (no su destino) y se crea una carpeta de verdad.
+        [IO.Directory]::Delete($Path, $false)
+        $item = $null
+    }
+    if (-not $item) {
+        New-Item -ItemType Directory -Path $Path -Force -ErrorAction Stop | Out-Null
+        [void](Set-EmiAdminOnlyAcl $Path)
+        return
+    }
+    if (-not $isWin) { return }
+    $bad = @(Get-EmiUntrustedWriters $Path)
+    if ($bad.Count -gt 0) {
+        [void](Set-EmiAdminOnlyAcl $Path)
+        $stamp = Get-Date -Format 'yyyyMMddHHmmss'
+        foreach ($f in @(Get-ChildItem -LiteralPath $Path -Force -File -ErrorAction SilentlyContinue)) {
+            try { Rename-Item -LiteralPath $f.FullName -NewName ($f.Name + ".no-fiable-$stamp") -ErrorAction Stop } catch { }
+        }
+        $script:DataWarning = "La carpeta $Path permitia escribir a usuarios sin privilegios ($($bad -join ', ')). Se ha protegido y su contenido anterior se ha apartado (.no-fiable)."
+        return
+    }
+    # Carpeta correcta: un archivo con ACE explicita de un no administrador se aparta
+    foreach ($f in @(Get-ChildItem -LiteralPath $Path -Force -File -ErrorAction SilentlyContinue)) {
+        if ($f.Name -like '*.no-fiable-*') { continue }
+        if (@(Get-EmiUntrustedWriters $f.FullName).Count -gt 0 -or ($f.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            try { Rename-Item -LiteralPath $f.FullName -NewName ($f.Name + '.no-fiable-' + (Get-Date -Format 'yyyyMMddHHmmss')) -ErrorAction Stop } catch { }
+        }
+    }
+}
+
 function Initialize-EmiCore {
-    param([Parameter(Mandatory)][string] $RootPath)
+    <#  -DataPath solo para pruebas: fuerza la carpeta de datos. #>
+    param([Parameter(Mandatory)][string] $RootPath, [string] $DataPath)
 
-    $script:Root = $RootPath
-    $dataDir = Join-Path $RootPath 'Data'
-    if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
+    $script:Root    = $RootPath
+    $script:OldData = Join-Path $RootPath 'Data'
+    $script:DataWarning = $null
 
+    if ($DataPath) {
+        $dataDir = $DataPath
+        if (-not (Test-Path -LiteralPath $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
+    } elseif ((Test-EmiWindows) -and (Test-EmiAdmin)) {
+        $dataDir = Join-Path $env:ProgramData 'EmiToolkit'
+        try { Initialize-EmiDataDir $dataDir }
+        catch { $script:DataWarning = "No se pudo preparar $dataDir : $($_.Exception.Message)" }
+    } else {
+        $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [Environment]::GetFolderPath('LocalApplicationData') }
+        $dataDir = Join-Path $base 'EmiToolkit'
+        if (-not (Test-Path -LiteralPath $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
+    }
+    $script:DataDir = $dataDir
     $script:LogFile = Join-Path $dataDir ("EmiToolkit_{0}.log" -f (Get-Date -Format 'yyyyMMdd'))
     $script:Journal = Join-Path $dataDir 'undo-journal.jsonl'
 
@@ -92,9 +214,103 @@ function Initialize-EmiCore {
             Result   = $null
         })
     }
+    if ($script:DataWarning) { Write-EmiLog $script:DataWarning Warn }
+    try { Import-EmiLegacyData }
+    catch { Write-EmiLog "No se pudieron migrar los datos antiguos de $($script:OldData): $($_.Exception.Message)" Warn }
 }
 
 function Get-EmiRoot { $script:Root }
+
+function Get-EmiDataDir { $script:DataDir }
+
+function Get-EmiHostsBackupPath { Join-Path $script:DataDir 'hosts.backup' }
+
+function Get-EmiHostsPath { Join-Path $env:SystemRoot 'System32\drivers\etc\hosts' }
+
+function Test-EmiHostsContent {
+    <#  Una copia de hosts valida: texto pequeno, sin NUL, y cada linea util
+        es "IP nombre [nombres...] [# comentario]". No es un archivo cualquiera. #>
+    param([Parameter(Mandatory)][string] $Path)
+    try {
+        $fi = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+        if ($fi.PSIsContainer -or ($fi.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $false }
+        if ($fi.Length -gt 1MB) { return $false }
+        $text = [IO.File]::ReadAllText($fi.FullName)
+        if ($text.Contains([char]0)) { return $false }
+        foreach ($l in ($text -split "`r?`n")) {
+            $t = $l.Trim()
+            if (-not $t -or $t.StartsWith('#')) { continue }
+            if ($t -notmatch '^[0-9A-Fa-f:.%]+\s+[A-Za-z0-9._\-]+(\s+[A-Za-z0-9._\-]+)*\s*(#.*)?$') { return $false }
+        }
+        return $true
+    } catch { return $false }
+}
+
+function Import-EmiLegacyData {
+    <#  Migra una sola vez lo que hubiera en <app>\Data (diario, copia de hosts y
+        logs) a la carpeta protegida. Cada entrada del diario pasa por las mismas
+        listas permitidas que el deshacer; lo que no pasa no se migra. Los
+        originales se renombran a *.migrado para no volver a leerlos. #>
+    $old = $script:OldData
+    if (-not $old -or -not $script:DataDir -or -not (Test-Path -LiteralPath $old -PathType Container)) { return }
+    if ([IO.Path]::GetFullPath($old).TrimEnd('\', '/') -eq [IO.Path]::GetFullPath($script:DataDir).TrimEnd('\', '/')) { return }
+
+    # 1. Copia de hosts (antes que el diario: sus entradas File apuntan a ella)
+    $oldHosts = Join-Path $old 'hosts.backup'
+    $newHosts = Get-EmiHostsBackupPath
+    if (Test-Path -LiteralPath $oldHosts) {
+        if (-not (Test-Path -LiteralPath $newHosts) -and (Test-EmiHostsContent $oldHosts)) {
+            Copy-Item -LiteralPath $oldHosts -Destination $newHosts -Force
+            Write-EmiLog "Copia de hosts migrada a $($script:DataDir)." Info
+        } elseif (-not (Test-Path -LiteralPath $newHosts)) {
+            Write-EmiLog "La copia de hosts antigua ($oldHosts) no parece un archivo hosts: no se migra." Warn
+        }
+        try { Rename-Item -LiteralPath $oldHosts -NewName 'hosts.backup.migrado' -ErrorAction Stop } catch { }
+    }
+
+    # 2. Diario
+    $oldFiles = @('undo-journal.jsonl', 'undo-journal.json' | ForEach-Object { Join-Path $old $_ } |
+                  Where-Object { Test-Path -LiteralPath $_ })
+    if ($oldFiles.Count -gt 0) {
+        $saved = $script:Journal
+        $script:Journal = Join-Path $old 'undo-journal.jsonl'
+        $entries = @(Get-EmiJournal)
+        $lost = Get-EmiJournalLostCount
+        $script:Journal = $saved
+
+        $ok = 0; $bad = 0
+        $oldBackup = [IO.Path]::GetFullPath($oldHosts)
+        foreach ($e in $entries) {
+            if ([string]$e.Kind -eq 'File' -and $e.Backup -and
+                [IO.Path]::GetFullPath([string]$e.Backup) -eq $oldBackup) { $e.Backup = $newHosts }
+            if (-not ($e.PSObject.Properties.Name -contains 'Computer')) {
+                # Las entradas antiguas no guardaban el equipo: se asume este,
+                # pero solo si superan las listas permitidas.
+                $e | Add-Member -NotePropertyName Computer -NotePropertyValue $env:COMPUTERNAME -Force
+            }
+            $why = Test-EmiUndoEntry $e
+            if ($why) { $bad++; Write-EmiLog "Migracion del diario: entrada rechazada ($why)." Warn; continue }
+            $line = ConvertTo-Json -InputObject $e -Depth 8 -Compress
+            [IO.File]::AppendAllText($script:Journal, $line + "`r`n", $script:JournalUtf8)
+            $ok++
+        }
+        foreach ($f in $oldFiles) {
+            try { Rename-Item -LiteralPath $f -NewName ((Split-Path $f -Leaf) + '.migrado') -ErrorAction Stop } catch { }
+        }
+        Write-EmiLog "Diario antiguo migrado a $($script:DataDir): $ok entradas validas, $bad rechazadas, $lost ilegibles." $(if ($bad -or $lost) { 'Warn' } else { 'Info' })
+    }
+
+    # 3. Logs (pueden llevar nombres de equipo y usuario: fuera de la carpeta portable)
+    foreach ($f in @(Get-ChildItem -LiteralPath $old -Filter '*.log' -File -Force -ErrorAction SilentlyContinue)) {
+        $dst = Join-Path $script:DataDir $f.Name
+        try {
+            if (Test-Path -LiteralPath $dst) {
+                [IO.File]::AppendAllText($dst, [IO.File]::ReadAllText($f.FullName))
+                Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop
+            } else { Move-Item -LiteralPath $f.FullName -Destination $dst -Force -ErrorAction Stop }
+        } catch { }
+    }
+}
 
 # ------------------------------- Log ---------------------------------
 
@@ -242,6 +458,16 @@ function Add-EmiJournalEntry {
     param([hashtable] $Entry)
     if (-not $script:Journal) { return }
     $Entry['Timestamp'] = (Get-Date).ToString('s')
+    # El equipo: un diario copiado de otra maquina no se aplica aqui
+    $Entry['Computer']  = $env:COMPUTERNAME
+    if ([string]$Entry['Kind'] -eq 'Firewall' -and $Entry['RuleName'] -and -not $Entry['RuleId']) {
+        # Se guarda el Name (GUID) de la regla recien creada para borrarla luego
+        # por su identificador exacto, nunca por DisplayName con comodines.
+        try {
+            $r = @(Get-EmiToolFirewallRule -DisplayName ([string]$Entry['RuleName']))
+            if ($r.Count -eq 1) { $Entry['RuleId'] = [string]$r[0].Name; $Entry['RuleGroup'] = [string]$r[0].Group }
+        } catch { }
+    }
     $line = ConvertTo-Json -InputObject ([pscustomobject]$Entry) -Depth 8 -Compress
     [System.IO.File]::AppendAllText($script:Journal, $line + "`r`n", $script:JournalUtf8)
 }
@@ -430,6 +656,150 @@ function ConvertTo-EmiUndoCommand {
     return [pscustomobject]@{ Kind = 'Command'; Action = 'Manual'; Hint = $hint }
 }
 
+# ------------------- Listas permitidas del deshacer -------------------
+# El deshacer corre como administrador y obedece al diario. Aunque el diario
+# ya vive en una carpeta protegida, cada entrada se valida contra lo que la
+# herramienta escribe de verdad; lo demas se rechaza y se anota en el log.
+# Si un modulo empieza a escribir una ruta, servicio o regla nueva, hay que
+# anadirla aqui o su deshacer se rechazara.
+
+$script:UndoRegistryAllow = @(
+    # HKLM: directivas y ajustes que escriben EmiPrivacy, EmiTweaks y EmiSystem
+    '^HKLM:\\SOFTWARE\\Policies\\Microsoft\\(Dsh|Edge|Edge\\EdgeWebView2|InputPersonalization|SQMClient\\Windows|Speech)$'
+    '^HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\(AdvertisingInfo|AppCompat|AppPrivacy|CloudContent|DataCollection|DeliveryOptimization|Explorer|GameDVR|HandwritingErrorReports|LocationAndSensors|System|Windows Chat|Windows Error Reporting|Windows Search|WindowsAI|WindowsCopilot|WindowsUpdate|WindowsUpdate\\AU)$'
+    '^HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\DataCollection$'
+    '^HKLM:\\SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting$'
+    '^HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile$'
+    '^HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\location$'
+    '^HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\(Run|Run32|StartupFolder)$'
+    '^HKLM:\\SYSTEM\\CurrentControlSet\\Control\\(Session Manager\\Power|Power|BitLocker)$'
+    '^HKLM:\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\[A-Za-z0-9 _.\-]+$'
+    # HKCU: ajustes del usuario que escriben EmiPrivacy, EmiTweaks y EmiStartup
+    '^HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\(Explorer|Explorer\\Advanced|Explorer\\Advanced\\TaskbarDeveloperSettings|Explorer\\VisualEffects|Explorer\\StartupApproved\\(Run|Run32|StartupFolder)|ContentDeliveryManager|Search|SearchSettings|AdvertisingInfo|Privacy|BackgroundAccessApplications|UserProfileEngagement|Themes\\Personalize|StorageSense\\Parameters\\StoragePolicy)$'
+    '^HKCU:\\SOFTWARE\\Microsoft\\(GameBar|Siuf\\Rules|Personalization\\Settings|Input\\TIPC|InputPersonalization|InputPersonalization\\TrainedDataStore|Speech_OneCore\\Settings\\OnlineSpeechPrivacy|AppInstaller)$'
+    '^HKCU:\\SOFTWARE\\Policies\\Microsoft\\Windows\\(WindowsCopilot|Explorer)$'
+    '^HKCU:\\System\\GameConfigStore$'
+    '^HKCU:\\Control Panel\\(Mouse|Accessibility\\StickyKeys)$'
+    '^HKCU:\\SOFTWARE\\Classes\\CLSID\\\{(0DB7E03F-FC29-4DC6-9020-FF41B59E513A|f874310e-b6b7-47dc-bc84-b9e6b38f5903|018D5C66-4533-4307-9B53-224DE2ED1FE6)\}$'
+)
+# Claves donde una escritura equivale a ejecutar codigo: nunca, venga de donde venga
+$script:UndoRegistryDeny = '\\(Image File Execution Options|SilentProcessExit|Winlogon|AppInit_DLLs|AppCertDlls|KnownDLLs|Lsa|Services|RunOnce|RunOnceEx|Policies\\Explorer\\Run|Terminal Server|Print\\Monitors|Command Processor|Shell Folders|Environment)(\\|$)'
+$script:UndoServices = @(
+    'DiagTrack', 'dmwappushservice', 'diagnosticshub.standardcollector.service', 'WerSvc', 'lfsvc',
+    'TextInputManagementService', 'SysMain', 'WSearch',
+    'Fax', 'RetailDemo', 'MapsBroker', 'WalletService', 'PhoneSvc', 'RemoteRegistry', 'RemoteAccess',
+    'SharedAccess', 'WMPNetworkSvc', 'XblAuthManager', 'XblGameSave', 'XboxNetApiSvc', 'XboxGipSvc',
+    'SEMgrSvc', 'PcaSvc', 'DoSvc', 'WpcMonSvc', 'TabletInputService',
+    'SQLTELEMETRY', 'SQLTELEMETRY$SQLEXPRESS', 'WSAIFabricSvc'
+)
+# Abren el equipo a la red: el deshacer nunca los pone en Automatico ni los arranca
+$script:UndoSensitiveServices = @('RemoteRegistry', 'RemoteAccess')
+$script:UndoFirewallGroups   = @('EmiToolkit', 'ESET KB332')
+$script:UndoFirewallPrefixes = @('EmiToolkit - ', 'ESET KB332 - ')
+$script:UndoFeatures = @('Containers-DisposableClientVM', 'Microsoft-Windows-Subsystem-Linux', 'Internet-Explorer-Optional-amd64', 'WindowsMediaPlayer')
+$script:UndoEnvVars  = @('AZURE_CORE_COLLECT_TELEMETRY', 'DOTNET_CLI_TELEMETRY_OPTOUT', 'BICEP_TELEMETRY_OPTOUT', 'POWERSHELL_TELEMETRY_OPTOUT', 'NUGET_TELEMETRY_OPTOUT')
+
+function ConvertTo-EmiRegistryPath {
+    <#  Forma canonica HKLM:\... / HKCU:\... (o $null si no es una de esas). #>
+    param([string] $Path)
+    if (-not $Path) { return $null }
+    $p = $Path.Trim() -replace '^Microsoft\.PowerShell\.Core\\Registry::', '' -replace '^Registry::', ''
+    $p = $p -replace '^HKEY_LOCAL_MACHINE(?=\\|$)', 'HKLM:' -replace '^HKEY_CURRENT_USER(?=\\|$)', 'HKCU:'
+    $p = $p -replace '/', '\' -replace '\\{2,}', '\'
+    $p = $p.TrimEnd('\')
+    if ($p -notmatch '^HK(LM|CU):\\') { return $null }
+    if ($p -match '(^|\\)\.{1,2}(\\|$)' -or $p -match '[\*\?\x00]') { return $null }
+    return $p
+}
+
+function Get-EmiToolFirewallRule {
+    <#  Reglas creadas por la herramienta (por su Group exacto) con ese
+        DisplayName exacto. Nunca se busca por DisplayName: admite comodines. #>
+    param([Parameter(Mandatory)][string] $DisplayName, [string] $RuleId)
+    $out = @()
+    foreach ($g in $script:UndoFirewallGroups) {
+        $out += @(Get-NetFirewallRule -Group $g -ErrorAction SilentlyContinue |
+                  Where-Object { $_.DisplayName -ceq $DisplayName -and (-not $RuleId -or $_.Name -eq $RuleId) })
+    }
+    return $out
+}
+
+function Test-EmiUndoEntry {
+    <#  $null si la entrada se puede aplicar; si no, el motivo del rechazo. #>
+    param([Parameter(Mandatory)] $e)
+    $names = @($e.PSObject.Properties | ForEach-Object { $_.Name })
+    if (-not ($names -contains 'Computer') -or -not $e.Computer) { return 'no indica en que equipo se hizo' }
+    if ([string]$e.Computer -ne [string]$env:COMPUTERNAME) { return "es de otro equipo ($($e.Computer))" }
+
+    switch ([string]$e.Kind) {
+        'Registry' {
+            $p = ConvertTo-EmiRegistryPath ([string]$e.Path)
+            if (-not $p) { return "ruta de registro no valida: $($e.Path)" }
+            if ($p -match $script:UndoRegistryDeny) { return "clave protegida: $p" }
+            $n = [string]$e.Name
+            if (-not $n -or $n.Contains([char]0)) { return 'valor sin nombre' }
+            $ok = $false
+            foreach ($rx in $script:UndoRegistryAllow) { if ($p -match $rx) { $ok = $true; break } }
+            # Casos con nombre fijo
+            if ($p -match '^HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run$' -and $n -eq 'OneDrive') { $ok = $true }
+            if ($p -ieq 'HKCU:\SOFTWARE\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32' -and
+                $n -eq '(default)' -and (-not $e.Existed -or [string]$e.OldValue -eq '')) { $ok = $true }
+            if ($p -match '^HKCU:\\SOFTWARE\\Classes\\CLSID\\' -and $n -ne 'System.IsPinnedToNameSpaceTree' -and $n -ne '(default)') { $ok = $false }
+            if ($p -match '\\WMI\\Autologger\\' -and $n -ne 'Start') { $ok = $false }
+            if (-not $ok) { return "la herramienta no escribe en $p" }
+            if ($e.Existed -and $e.OldType -and [string]$e.OldType -notin @('DWord', 'QWord', 'String', 'ExpandString', 'MultiString', 'Binary', 'Unknown')) {
+                return "tipo de valor no admitido: $($e.OldType)"
+            }
+            return $null
+        }
+        'Service' {
+            if ($script:UndoServices -notcontains [string]$e.Name) { return "servicio no gestionado por la herramienta: $($e.Name)" }
+            if ($script:UndoSensitiveServices -contains [string]$e.Name -and
+                ([string]$e.OldStartMode -in @('Auto', 'Automatic') -or [string]$e.OldStatus -eq 'Running')) {
+                return "no se reactiva $($e.Name) en Automatico ni se arranca: abre el equipo a la red (hazlo a mano en services.msc si de verdad lo necesitas)"
+            }
+            return $null
+        }
+        'Task' {
+            if ([string]$e.TaskPath -notmatch '^\\Microsoft\\[A-Za-z0-9 _.\\\-]*\\$' -or [string]$e.TaskName -match '[\*\?\[\]]' -or -not $e.TaskName) {
+                return "tarea fuera de \Microsoft\: $($e.TaskPath)$($e.TaskName)"
+            }
+            return $null
+        }
+        'Firewall' {
+            $rn = [string]$e.RuleName
+            if (-not $rn -or $rn -match '[\*\?\[\]]') { return "nombre de regla no valido: '$rn'" }
+            $pref = $false
+            foreach ($x in $script:UndoFirewallPrefixes) { if ($rn.StartsWith($x, [StringComparison]::Ordinal)) { $pref = $true } }
+            if (-not $pref) { return "la regla '$rn' no la crea la herramienta" }
+            if ($e.RuleId -and [string]$e.RuleId -notmatch '^\{?[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}?$') { return "identificador de regla no valido: $($e.RuleId)" }
+            return $null
+        }
+        'File' {
+            try {
+                $path = [IO.Path]::GetFullPath([string]$e.Path)
+                $bak  = if ($e.Backup) { [IO.Path]::GetFullPath([string]$e.Backup) } else { $null }
+            } catch { return 'ruta de archivo no valida' }
+            if ($path -ne [IO.Path]::GetFullPath((Get-EmiHostsPath))) { return "la herramienta solo restaura el archivo hosts, no $path" }
+            if ($bak -and $bak -ne [IO.Path]::GetFullPath((Get-EmiHostsBackupPath))) { return "la copia de hosts debe estar en $($script:DataDir), no en $bak" }
+            return $null
+        }
+        'Command' {
+            $c = ConvertTo-EmiUndoCommand $e
+            switch ([string]$c.Action) {
+                'AppxReinstall'  { if ([string]$c.PackageName -notmatch '^[A-Za-z0-9][A-Za-z0-9.\-]{1,127}$') { return "paquete no valido: $($c.PackageName)" } }
+                'WindowsFeature' { if ($script:UndoFeatures -notcontains [string]$c.Feature) { return "caracteristica no gestionada: $($c.Feature)" } }
+                'EnvVars' {
+                    if ($c.Scope -and [string]$c.Scope -ne 'User') { return "solo variables de usuario, no $($c.Scope)" }
+                    foreach ($v in @($c.Variables)) { if ($script:UndoEnvVars -notcontains [string]$v.Name) { return "variable no gestionada: $($v.Name)" } }
+                }
+            }
+            return $null
+        }
+    }
+    return $null
+}
+
 function Invoke-EmiUndoEntry {
     <#  Revierte una entrada. Devuelve:
           'Reverted'     se deshizo;
@@ -451,10 +821,11 @@ function Invoke-EmiUndoEntry {
                 if ($t -eq 'Binary'   -and $val -isnot [byte[]]) { $val = [byte[]]@($val | ForEach-Object { [byte]$_ }) }
                 if ($t -eq 'MultiString' -and $val -isnot [array]) { $val = [string[]]@($val) }
                 if ($t -eq 'DWord' -and $val -is [long]) { $val = [int]($val -band 0xFFFFFFFF) }
-                if (-not (Test-Path -LiteralPath $e.Path)) { New-Item -Path $e.Path -Force -ErrorAction Stop | Out-Null }
-                New-ItemProperty -LiteralPath $e.Path -Name $e.Name -Value $val -PropertyType $t -Force -ErrorAction Stop | Out-Null
-            } elseif (Test-Path -LiteralPath $e.Path) {
-                Remove-ItemProperty -LiteralPath $e.Path -Name $e.Name -Force -ErrorAction SilentlyContinue
+                $rp = ConvertTo-EmiRegistryPath ([string]$e.Path)
+                if (-not (Test-Path -LiteralPath $rp)) { New-Item -Path $rp -Force -ErrorAction Stop | Out-Null }
+                New-ItemProperty -LiteralPath $rp -Name $e.Name -Value $val -PropertyType $t -Force -ErrorAction Stop | Out-Null
+            } elseif (Test-Path -LiteralPath (ConvertTo-EmiRegistryPath ([string]$e.Path))) {
+                Remove-ItemProperty -LiteralPath (ConvertTo-EmiRegistryPath ([string]$e.Path)) -Name $e.Name -Force -ErrorAction SilentlyContinue
             }
             return 'Reverted'
         }
@@ -466,7 +837,9 @@ function Invoke-EmiUndoEntry {
                 return 'Irreversible'
             }
             if ($st) { Set-Service -Name $e.Name -StartupType $st -ErrorAction Stop }
-            if ($e.OldStatus -eq 'Running') { Start-Service -Name $e.Name -ErrorAction Stop }
+            if ($e.OldStatus -eq 'Running' -and $script:UndoSensitiveServices -notcontains [string]$e.Name) {
+                Start-Service -Name $e.Name -ErrorAction Stop
+            }
             return 'Reverted'
         }
         'Task' {
@@ -479,8 +852,10 @@ function Invoke-EmiUndoEntry {
             return 'Reverted'
         }
         'Firewall' {
-            $rules = @(Get-NetFirewallRule -DisplayName $e.RuleName -ErrorAction SilentlyContinue)
-            if ($rules.Count -gt 0) { $rules | Remove-NetFirewallRule -ErrorAction Stop }
+            # Solo reglas del grupo de la herramienta, con el DisplayName exacto
+            # (y el GUID guardado, si lo hay); se borran una a una por su Name.
+            $rules = @(Get-EmiToolFirewallRule -DisplayName ([string]$e.RuleName) -RuleId ([string]$e.RuleId))
+            foreach ($r in $rules) { Remove-NetFirewallRule -Name $r.Name -ErrorAction Stop }
             return 'Reverted'
         }
         'File' {
@@ -492,7 +867,11 @@ function Invoke-EmiUndoEntry {
                 Write-EmiLog "Falta la copia $($e.Backup); no se puede restaurar $($e.Path)." Warn
                 return 'Irreversible'
             }
-            Copy-Item -LiteralPath $e.Backup -Destination $e.Path -Force -ErrorAction Stop
+            if (-not (Test-EmiHostsContent ([string]$e.Backup))) {
+                Write-EmiLog "La copia $($e.Backup) no parece un archivo hosts: no se restaura." Warn
+                return 'Failed'
+            }
+            Copy-Item -LiteralPath (Get-EmiHostsBackupPath) -Destination (Get-EmiHostsPath) -Force -ErrorAction Stop
             return 'Reverted'
         }
         'Command' {
@@ -562,11 +941,23 @@ function Undo-EmiChanges {
         return 0
     }
 
-    $n = 0; $skipped = 0
+    $n = 0; $skipped = 0; $rejected = 0
     $pending = New-Object System.Collections.ArrayList
     for ($i = $entries.Count - 1; $i -ge 0; $i--) {
         $e = $entries[$i]
         $r = 'Failed'
+        $why = $null
+        try { $why = Test-EmiUndoEntry $e } catch { $why = $_.Exception.Message }
+        if ($why) {
+            # Rechazada: no se aplica, sale del diario y queda apartada para revisarla
+            Write-EmiLog "Entrada del diario rechazada ($($e.Kind)): $why." Warn
+            try {
+                [IO.File]::AppendAllText(($script:Journal -replace '\.jsonl$', '.rechazadas.jsonl'),
+                    (ConvertTo-Json -InputObject $e -Depth 8 -Compress) + "`r`n", $script:JournalUtf8)
+            } catch { }
+            $rejected++
+            continue
+        }
         try { $r = [string](Invoke-EmiUndoEntry $e | Select-Object -Last 1) }
         catch { Write-EmiLog "Revertir '$($e.Kind)': $($_.Exception.Message)" Warn; $r = 'Failed' }
         switch ($r) {
@@ -581,6 +972,7 @@ function Undo-EmiChanges {
 
     Write-EmiLog "Se revirtieron $n cambios." Ok
     if ($skipped -gt 0) { Write-EmiLog "$skipped cambios no se pueden deshacer automaticamente (ver avisos)." Warn }
+    if ($rejected -gt 0) { Write-EmiLog "$rejected entradas del diario se rechazaron por seguridad (apartadas en $(Split-Path ($script:Journal -replace '\.jsonl$', '.rechazadas.jsonl') -Leaf))." Warn }
     if ($pending.Count -gt 0) { Write-EmiLog "$($pending.Count) cambios no se pudieron revertir y siguen en el diario para reintentarlo." Warn }
     return $n
 }
