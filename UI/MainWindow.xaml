@@ -1133,6 +1133,25 @@
                     </StackPanel>
                   </Border>
                 </UniformGrid>
+
+                <!-- Tanda 2 · Informe de salud (Modules\EmiHealth.psm1). El clic esta en EmiToolkit.ps1 (BtnHealthReport). -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,8" Padding="14">
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*"/>
+                      <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                      <TextBlock Text="Informe de salud" FontWeight="SemiBold" Foreground="{StaticResource Deep}"/>
+                      <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
+                                 Text="Revisa discos, bateria, estabilidad, seguridad y arranque sin cambiar nada, y deja el informe en Documentos."/>
+                      <CheckBox x:Name="ChkHealthWinSxS" Style="{StaticResource Check}" Margin="0,8,0,0" IsChecked="False"
+                                Content="Analizar tambien WinSxS (tarda varios minutos)"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" x:Name="BtnHealthReport" Style="{StaticResource Gloss}"
+                            Content="Informe de salud" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                  </Grid>
+                </Border>
               </StackPanel>
             </ScrollViewer>
           </Grid>
