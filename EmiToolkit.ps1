@@ -195,12 +195,17 @@ $timer.Add_Tick({
     # Volcar el log
     try {
         $total = $global:EmiSync.Log.Count
-        while ($script:LogIndex -lt $total) {
-            $script:LogView.Add($global:EmiSync.Log[$script:LogIndex])
-            $script:LogIndex++
-            if ($script:LogView.Count -gt 600) { $script:LogView.RemoveAt(0) }
+        if ($script:LogIndex -lt $total) {
+            # Bajar al final solo si llegaron lineas nuevas y el usuario ya estaba
+            # abajo: si ha subido para leer, no se le arrastra cada 180 ms.
+            $atEnd = ($ui.SvLog.ScrollableHeight - $ui.SvLog.VerticalOffset) -lt 4
+            while ($script:LogIndex -lt $total) {
+                $script:LogView.Add($global:EmiSync.Log[$script:LogIndex])
+                $script:LogIndex++
+                if ($script:LogView.Count -gt 600) { $script:LogView.RemoveAt(0) }
+            }
+            if ($atEnd) { $ui.SvLog.ScrollToEnd() }
         }
-        if ($total -gt 0) { $ui.SvLog.ScrollToEnd() }
     } catch { }
 
     # Estado y progreso
