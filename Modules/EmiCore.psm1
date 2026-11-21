@@ -431,7 +431,7 @@ function Test-EmiTrustedLocation {
     try { $full = [IO.Path]::GetFullPath($Path) } catch { return $false }
     foreach ($r in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432, $env:SystemRoot)) {
         if (-not $r) { continue }
-        $root = [IO.Path]::GetFullPath($r).TrimEnd('\') + '\'
+        $root = [IO.Path]::GetFullPath($r).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
         if ($full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
     }
     return $false
@@ -540,6 +540,103 @@ function Open-EmiUrl {
         Start-Process -FilePath (Join-Path $env:SystemRoot 'explorer.exe') -ArgumentList ('"' + $Url + '"') -ErrorAction Stop
     } else {
         Start-Process $Url -ErrorAction Stop
+    }
+}
+
+# --------------------------- Desinstaladores ------------------------
+# Las entradas de HKCU\...\Uninstall y los desinstaladores bajo el perfil del
+# usuario (%LOCALAPPDATA%\Programs, instalaciones /currentuser) los puede
+# escribir cualquier programa del usuario: nunca se ejecutan elevados. Se
+# lanzan como el usuario, sin privilegios (es su propia instalacion).
+
+$script:UninstallRoots = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+)
+# Interpretes: aunque esten en System32 y firmados, con argumentos ajenos
+# ejecutan cualquier cosa. Nunca se lanzan elevados desde una entrada.
+$script:UninstallInterpreters = '^(cmd|powershell|pwsh|rundll32|regsvr32|mshta|wscript|cscript|conhost|explorer|bitsadmin|certutil|wmic|schtasks|reg|msbuild|installutil)(\.exe)?$'
+
+function Find-EmiUninstallEntry {
+    <#  Entradas de ...\Uninstall con DisplayName EXACTO (se admite el sufijo
+        de version que anade electron-builder: "Nombre 1.2.3") y Publisher
+        exacto de la lista. Nada de -like "*nombre*". #>
+    param([Parameter(Mandatory)][string] $DisplayName, [Parameter(Mandatory)][string[]] $Publisher)
+    $rx = '^' + [regex]::Escape($DisplayName) + '( v?\d+(\.\d+){0,3})?$'
+    foreach ($root in $script:UninstallRoots) {
+        foreach ($k in @(Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue)) {
+            $p = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue
+            if (-not $p -or [string]$p.DisplayName -notmatch $rx) { continue }
+            if ($Publisher -notcontains ([string]$p.Publisher).Trim()) {
+                Write-EmiLog "'$($p.DisplayName)' es de otro editor ('$($p.Publisher)'): no se toca." Warn
+                continue
+            }
+            $p | Add-Member -NotePropertyName EmiUserHive -NotePropertyValue ($root -like 'HKCU:*') -Force
+            $p
+        }
+    }
+}
+
+function Get-EmiSafeUninstallPlan {
+    <#  Decide como desinstalar una entrada. Devuelve FilePath, Arguments y
+        Mode: 'Elevated' (HKLM, en Program Files/Windows, firma valida, no es
+        un interprete), 'User' (sin privilegios, como el usuario) o 'Refuse'. #>
+    param([Parameter(Mandatory)] $Entry)
+    $plan = [pscustomobject]@{ Mode = 'Refuse'; FilePath = $null; Arguments = ''; Reason = '' }
+    try { $u = Get-EmiUninstallCommand -QuietUninstallString $Entry.QuietUninstallString -UninstallString $Entry.UninstallString }
+    catch { $plan.Reason = $_.Exception.Message; return $plan }
+    $fp   = [Environment]::ExpandEnvironmentVariables([string]$u.FilePath)
+    $leaf = ($fp -split '[\\/]')[-1]
+
+    if ($leaf -match '^msiexec(\.exe)?$') {
+        # Solo "/X{GUID}" reconstruido: nada de /i http://..., /y dll, /p parche
+        $g = [regex]::Match([string]$u.Arguments, '\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}')
+        if (-not $g.Success) { $plan.Reason = "msiexec sin un codigo de producto valido: $($u.Arguments)"; return $plan }
+        $plan.FilePath  = Join-Path $env:SystemRoot 'System32\msiexec.exe'
+        $plan.Arguments = "/X$($g.Value) /qn /norestart"
+        $plan.Mode      = if ($Entry.EmiUserHive) { 'User' } else { 'Elevated' }
+        return $plan
+    }
+    if (-not [IO.Path]::IsPathRooted($fp)) { $plan.Reason = "el desinstalador no tiene ruta completa: $fp"; return $plan }
+    $plan.FilePath  = $fp
+    $plan.Arguments = [string]$u.Arguments
+    if (-not (Test-Path -LiteralPath $fp -PathType Leaf)) { $plan.Reason = "no existe $fp"; return $plan }
+
+    if ($Entry.EmiUserHive -or -not (Test-EmiTrustedLocation $fp)) {
+        $plan.Mode = 'User'
+        $plan.Reason = 'entrada del usuario o desinstalador en una carpeta que puede modificar el usuario'
+        return $plan
+    }
+    if ($leaf -match $script:UninstallInterpreters) { $plan.Mode = 'User'; $plan.Reason = "$leaf es un interprete de comandos"; return $plan }
+    $t = Test-EmiTrustedExecutable -Path $fp
+    if (-not $t.Ok) {
+        # Sin firma valida no se lanza como administrador. Sin elevar, si el
+        # desinstalador necesita permisos Windows mostrara su propio UAC con
+        # el editor real, y el usuario decide.
+        $plan.Mode = 'User'; $plan.Reason = $t.Reason
+        return $plan
+    }
+    $plan.Mode = 'Elevated'
+    return $plan
+}
+
+function Invoke-EmiSafeUninstall {
+    <#  Ejecuta el plan y espera. Devuelve el codigo de salida (0/3010/1641 = bien). #>
+    param([Parameter(Mandatory)] $Entry, [int] $TimeoutSec = 900)
+    $plan = Get-EmiSafeUninstallPlan $Entry
+    switch ($plan.Mode) {
+        'Elevated' {
+            $sp = @{ FilePath = $plan.FilePath; Wait = $true; PassThru = $true; ErrorAction = 'Stop' }
+            if ($plan.Arguments) { $sp['ArgumentList'] = $plan.Arguments }
+            return [int](Start-Process @sp).ExitCode
+        }
+        'User' {
+            Write-EmiLog "$($Entry.DisplayName): se desinstala sin privilegios de administrador ($($plan.Reason))." Info
+            $r = Start-EmiUnelevated -FilePath $plan.FilePath -Arguments $plan.Arguments -Wait -TimeoutSec $TimeoutSec
+            return $r.ExitCode
+        }
+        default { throw "no se ejecuta: $($plan.Reason)" }
     }
 }
 
@@ -901,6 +998,8 @@ function Test-EmiUndoEntry {
             return $null
         }
         'File' {
+            # Sin copia no se hace nada (Invoke-EmiUndoEntry la da por irreversible)
+            if (-not $e.Backup) { return $null }
             try {
                 $path = [IO.Path]::GetFullPath([string]$e.Path)
                 $bak  = if ($e.Backup) { [IO.Path]::GetFullPath([string]$e.Backup) } else { $null }

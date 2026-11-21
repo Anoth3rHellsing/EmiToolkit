@@ -375,21 +375,8 @@ function Remove-EmiVortexFull {
     Set-EmiStatus "Paso $current/$steps : Desinstalando Vortex..." ([int](($current / $steps) * 100))
 
     if ($info.InstallPath) {
-        $uninstaller = Join-Path $info.InstallPath 'Uninstall Vortex.exe'
-        if (Test-Path -LiteralPath $uninstaller) {
-            Write-EmiLog 'Ejecutando desinstalador de Vortex...' Step
-            try {
-                $proc = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
-                if ($proc -and $proc.ExitCode -eq 0) {
-                    Write-EmiLog 'Vortex desinstalado correctamente.' Ok
-                } else {
-                    Write-EmiLog "Desinstalador devolvio codigo $($proc.ExitCode)." Warn
-                }
-            }
-            catch { Write-EmiLog "Error ejecutando desinstalador: $($_.Exception.Message)" Warn }
-        } else {
-            Write-EmiLog 'Desinstalador no encontrado; se omite.' Warn
-        }
+        Write-EmiLog 'Ejecutando desinstalador de Vortex...' Step
+        [void](_Invoke-EmiVortexUninstaller $info)
     }
 
     # Paso 4: Limpiar registro
@@ -443,6 +430,33 @@ function Remove-EmiVortexFull {
 }
 
 # ======================== Helpers internos ============================
+
+function _Invoke-EmiVortexUninstaller {
+    <#  Desinstala Vortex sin ejecutar como administrador nada que pueda
+        haber puesto el usuario. La entrada de ...\Uninstall se busca por
+        DisplayName y Publisher exactos; la de HKCU o un desinstalador en
+        %LOCALAPPDATA% (instalacion por usuario) se lanzan sin privilegios.
+        En HKLM, solo elevado si esta en Program Files y la firma es valida. #>
+    param($Info)
+    $entry = @(Find-EmiUninstallEntry -DisplayName 'Vortex' -Publisher @('Black Tree Gaming Ltd.', 'Black Tree Gaming Ltd')) | Select-Object -First 1
+    if (-not $entry -and $Info.InstallPath) {
+        $exe = Join-Path $Info.InstallPath 'Uninstall Vortex.exe'
+        if (Test-Path -LiteralPath $exe -PathType Leaf) {
+            $entry = [pscustomobject]@{
+                DisplayName = 'Vortex'; QuietUninstallString = $null
+                UninstallString = '"' + $exe + '" /S'
+                EmiUserHive = -not (Test-EmiTrustedLocation $exe)
+            }
+        }
+    }
+    if (-not $entry) { Write-EmiLog 'Desinstalador de Vortex no encontrado; se omite.' Warn; return $false }
+    try {
+        $code = Invoke-EmiSafeUninstall -Entry $entry
+        if ($code -eq 0) { Write-EmiLog 'Vortex desinstalado correctamente.' Ok; return $true }
+        Write-EmiLog "Desinstalador devolvio codigo $code." Warn
+    } catch { Write-EmiLog "Desinstalador de Vortex: $($_.Exception.Message)" Warn }
+    return $false
+}
 
 function _Get-EmiVortexManifestPaths {
     <#  Devuelve rutas posibles de vortex.deployment.json para un gameId. #>
@@ -643,17 +657,7 @@ function Remove-EmiVortexSkyrimFull {
         # Paso 3: Ejecutar desinstalador silencioso
         Write-EmiLog '=== Paso 3/6: Desinstalando Vortex ===' Step
         if ($info.InstallPath) {
-            $uninstaller = Join-Path $info.InstallPath 'Uninstall Vortex.exe'
-            if (Test-Path -LiteralPath $uninstaller) {
-                try {
-                    $proc = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
-                    if ($proc -and $proc.ExitCode -eq 0) {
-                        Write-EmiLog 'Vortex desinstalado correctamente.' Ok
-                    } else {
-                        Write-EmiLog "Desinstalador devolvio codigo $($proc.ExitCode)." Warn
-                    }
-                } catch { Write-EmiLog "Error ejecutando desinstalador: $($_.Exception.Message)" Warn }
-            }
+            [void](_Invoke-EmiVortexUninstaller $info)
         }
 
         # Paso 4: Limpiar registro

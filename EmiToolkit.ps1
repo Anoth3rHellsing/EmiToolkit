@@ -1008,26 +1008,22 @@ $ui.BtnStoreUninstall.Add_Click({
     }
     $list = ($selected -join "`n - ")
     $uninstMsg = 'Se buscaran y desinstalaran ' + $selected.Count + ' apps de Another Suite:' + "`n`n" + ' - ' + $list + "`n`n" + 'Continuar?'
-    $ans = [System.Windows.MessageBox]::Show($uninstMsg, 'Confirmar desinstalacion', 'YesNo', 'Warning')
+    $ans = [System.Windows.MessageBox]::Show($uninstMsg, 'Confirmar desinstalacion', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
 
-    Start-EmiWork -Label 'Desinstalando apps de Another Store...' -Parameters @{ Names = $selected } -Work {
+    # Editores admitidos en ...\Uninstall para las apps de Another Suite (exactos)
+    $publishers = @('Another Suite', 'Anoth3rHellsing', 'Another')
+    Start-EmiWork -Label 'Desinstalando apps de Another Store...' -Parameters @{ Names = $selected; Publishers = $publishers } -Work {
         $ok = 0; $fail = 0
         foreach ($name in $P.Names) {
-            $found = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
-                                       'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
-                                       'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
-                     Where-Object { $_.DisplayName -like "*$name*" } | Select-Object -First 1
+            # DisplayName y Publisher exactos; las entradas de HKCU o de carpetas
+            # del usuario se desinstalan sin privilegios (Invoke-EmiSafeUninstall)
+            $found = @(Find-EmiUninstallEntry -DisplayName $name -Publisher $P.Publishers) | Select-Object -First 1
             if ($found -and ($found.QuietUninstallString -or $found.UninstallString)) {
                 try {
-                    $u = Get-EmiUninstallCommand -QuietUninstallString $found.QuietUninstallString -UninstallString $found.UninstallString
-                    if ($u.Arguments) {
-                        $proc = Start-Process -FilePath $u.FilePath -ArgumentList $u.Arguments -Wait -PassThru -ErrorAction Stop
-                    } else {
-                        $proc = Start-Process -FilePath $u.FilePath -Wait -PassThru -ErrorAction Stop
-                    }
+                    $code = Invoke-EmiSafeUninstall -Entry $found
                     # 3010/1641: MSI pide reiniciar, pero desinstalo bien
-                    if ($proc.ExitCode -notin @(0, 3010, 1641)) { throw ('el desinstalador devolvio el codigo ' + $proc.ExitCode) }
+                    if ($code -notin @(0, 3010, 1641)) { throw ('el desinstalador devolvio el codigo ' + $code) }
                     $ok++
                     Write-EmiLog ('Another Store: ' + $name + ' desinstalado.') Ok
                 } catch {
