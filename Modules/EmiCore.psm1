@@ -1591,14 +1591,66 @@ function Undo-EmiChanges {
 
 # --------------------------- Punto de restauracion -------------------
 
+function Get-EmiFreeBytes {
+    param([string] $Root)
+    try { return [long](New-Object IO.DriveInfo $Root).AvailableFreeSpace } catch { return $null }
+}
+
+function Get-EmiRestoreReadiness {
+    <#  Si se puede crear un punto de restauracion: directiva que lo prohibe,
+        espacio libre en la unidad del sistema y espacio reservado para los
+        puntos (Win32_ShadowStorage). Devuelve Ok y, si no, Reason. #>
+    $r = [pscustomobject]@{ Ok = $true; Reason = $null; Note = $null }
+    $pol = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\SystemRestore' -ErrorAction SilentlyContinue
+    if ($pol -and ($pol.PSObject.Properties['DisableSR'] -and $pol.DisableSR -eq 1)) {
+        $r.Ok = $false; $r.Reason = 'Restaurar sistema esta desactivado por una directiva de tu organizacion'; return $r
+    }
+    $free = Get-EmiFreeBytes "$env:SystemDrive\"
+    if ($null -ne $free -and $free -lt 1GB) {
+        $r.Ok = $false; $r.Reason = "solo quedan $(Format-EmiSize $free) libres en $env:SystemDrive (hace falta al menos 1 GB)"; return $r
+    }
+    try {
+        $vol = Get-CimInstance Win32_Volume -Filter "DriveLetter='$env:SystemDrive'" -ErrorAction Stop | Select-Object -First 1
+        $g   = if ($vol -and [string]$vol.DeviceID -match '(\{[0-9A-Fa-f-]+\})') { $Matches[1] } else { $null }
+        $ss  = if ($g) { @(Get-CimInstance Win32_ShadowStorage -ErrorAction Stop | Where-Object { ([string]$_.Volume).Contains($g) }) | Select-Object -First 1 } else { $null }
+        if ($ss -and [long]$ss.MaxSpace -gt 0 -and [long]$ss.MaxSpace -lt 1GB) {
+            $r.Note = "el espacio reservado para puntos de restauracion es muy pequeno ($(Format-EmiSize ([long]$ss.MaxSpace))): Windows puede borrar los anteriores o no crear este"
+        }
+    } catch { }
+    return $r
+}
+
 function New-EmiRestorePoint {
-    param([string] $Description = 'EmiToolkit - antes de optimizar')
+    <#  Crea un punto de restauracion y comprueba que existe. Antes mira si se
+        puede (directiva, espacio) y lo dice claro si no; si la proteccion del
+        sistema estaba apagada en la unidad del sistema, la enciende y lo dice. #>
+    param([string] $Description = "Another's Toolbox - antes de optimizar")
     $key  = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore'
     $name = 'SystemRestorePointCreationFrequency'
     $had  = $false; $old = $null; $changed = $false
     try {
         Set-EmiStatus 'Creando punto de restauracion...'
         Write-EmiLog 'Creando punto de restauracion del sistema...' Step
+
+        $ready = Get-EmiRestoreReadiness
+        if (-not $ready.Ok) {
+            Write-EmiLog "No se crea el punto de restauracion: $($ready.Reason)." Warn
+            return $false
+        }
+        if ($ready.Note) { Write-EmiLog "Punto de restauracion: $($ready.Note)." Warn }
+
+        $before = $null
+        try { $before = @(Get-ComputerRestorePoint -ErrorAction Stop) | Sort-Object SequenceNumber | Select-Object -Last 1 } catch { }
+        if ($null -eq $before) {
+            # Sin puntos (o sin poder leerlos) suele ser que la proteccion esta apagada
+            try {
+                Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop
+                Write-EmiLog "Se activo la proteccion del sistema en $env:SystemDrive (estaba apagada o sin puntos). Se puede apagar en Propiedades del sistema > Proteccion del sistema." Info
+            } catch {
+                Write-EmiLog "No se crea el punto de restauracion: la proteccion del sistema esta apagada en $env:SystemDrive y no se pudo activar ($($_.Exception.Message))." Warn
+                return $false
+            }
+        }
 
         # Windows limita a 1 punto cada 24h; se quita ese limite solo mientras
         # se crea el punto y se deja como estaba (finally), exista o no antes.
@@ -1607,8 +1659,15 @@ function New-EmiRestorePoint {
         New-ItemProperty -Path $key -Name $name -Value 0 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
         $changed = $true
 
-        Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction SilentlyContinue
         Checkpoint-Computer -Description $Description -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
+
+        # Checkpoint-Computer puede volver sin error y sin crear nada: se comprueba
+        $after = $null
+        try { $after = @(Get-ComputerRestorePoint -ErrorAction Stop) | Sort-Object SequenceNumber | Select-Object -Last 1 } catch { }
+        if (-not $after -or ($before -and $after.SequenceNumber -le $before.SequenceNumber)) {
+            Write-EmiLog 'Windows no creo el punto de restauracion (revisa el espacio de Proteccion del sistema). No hay punto de antes de estos cambios.' Warn
+            return $false
+        }
         Write-EmiLog 'Punto de restauracion creado.' Ok
         return $true
     }
