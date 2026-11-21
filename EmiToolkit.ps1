@@ -290,7 +290,7 @@ foreach ($m in $ModuleNames) {
 Initialize-EmiCore -RootPath $Root
 if ($script:TrustNote) { Write-EmiLog $script:TrustNote Warn }
 Initialize-EmiVault
-Write-EmiLog ('Another''s Toolbox iniciado en ' + $env:COMPUTERNAME + ' por ' + $env:USERNAME + '.') Ok
+Write-EmiLog ('Another''s Toolbox 0.4.0 iniciado en ' + $env:COMPUTERNAME + ' por ' + $env:USERNAME + '.') Ok
 if (-not $isAdmin) { Write-EmiLog 'Sin permisos de administrador: muchas acciones estaran limitadas.' Warn }
 
 # ------------------------------ XAML ----------------------------------
@@ -320,6 +320,8 @@ if ($script:HighContrast) {
     $xamlText = ConvertTo-EmiHighContrastXaml $xamlText @{ Text = $sc::WindowTextColor.ToString(); Hi = $sc::HighlightColor.ToString(); HiText = $sc::HighlightTextColor.ToString() }
 }
 $win = [Windows.Markup.XamlReader]::Parse($xamlText)
+$script:AppVersion = '0.4.0'   # la misma que changelog.txt y LEEME.md
+$win.Title = 'Another''s Toolbox ' + $script:AppVersion
 [void]$script:StartMarks.Add('XAML ' + $script:StartClock.ElapsedMilliseconds + ' ms')
 
 function C { param([string] $Name) $win.FindName($Name) }
@@ -551,7 +553,7 @@ function Get-EmiTaskIssues {
     return 'con ' + ($parts -join ' y ')
 }
 
-$script:LogHint = 'mira el registro (Modo avanzado > Registro y deshacer, o la carpeta Data)'
+$script:LogHint = 'mira el historial (Modo avanzado > Historial y deshacer, o la carpeta de datos)'
 
 function Get-EmiTaskIssueNote {
     <#  Nota para anadir a un mensaje propio: vacia si no hubo avisos ni errores. #>
@@ -667,7 +669,7 @@ $ui.SwAdvanced.Add_Click({
         $ui.TbModeHint.Text = 'Modo avanzado: cada apartado por separado.'
         Initialize-EmiAdvancedPages
     } else {
-        $ui.TbModeHint.Text = 'Modo basico: un clic y listo.'
+        $ui.TbModeHint.Text = 'Modo básico: un clic y listo.'
         $ui.NavHome.IsChecked = $true
         Show-EmiPage 'Home'
     }
@@ -821,7 +823,7 @@ function Set-EmiStatusView {
                             else { 'SIN administrador: cierra y abre EmiToolkit.cmd.' }
 
     # Navegador y energia
-    $ui.TbZenState.Text = if (-not $z.Installed) { 'Zen Browser no esta instalado en este equipo.' }
+    $ui.TbZenState.Text = if (-not $z.Installed) { 'Zen Browser no está instalado en este equipo.' }
                           elseif ($z.IsDefault)  { 'Zen ya es el navegador predeterminado (' + $z.Path + ').' }
                           else { 'Zen instalado en ' + $z.Path + '. Predeterminado actual: ' + $z.CurrentDefault + '.' }
     $ui.BtnZenSet.IsEnabled = [bool]$z.Installed
@@ -831,7 +833,7 @@ function Set-EmiStatusView {
     # Recomendaciones de privacidad
     $zr = $D.ZenRecs
     if (-not $zr.Installed) {
-        $ui.TbPrivRecZenState.Text = 'Zen Browser no esta instalado.'
+        $ui.TbPrivRecZenState.Text = 'Zen Browser no está instalado.'
         $ui.BtnPrivRecZenSet.Visibility = 'Collapsed'
         $ui.BtnPrivRecZenDownload.Visibility = 'Visible'
         $ui.CardUblock.Visibility = 'Collapsed'
@@ -841,7 +843,7 @@ function Set-EmiStatusView {
         $ui.BtnPrivRecZenSet.Visibility = if ($zr.IsDefault) { 'Collapsed' } else { 'Visible' }
         $ui.BtnPrivRecZenDownload.Visibility = 'Collapsed'
         $ui.CardUblock.Visibility = 'Visible'
-        $ui.TbPrivRecUblockState.Text = if ($zr.UblockInstalled) { 'uBlock Origin ya esta instalado.' } else { 'uBlock Origin NO esta instalado. Recomendado.' }
+        $ui.TbPrivRecUblockState.Text = if ($zr.UblockInstalled) { 'uBlock Origin ya está instalado.' } else { 'uBlock Origin NO está instalado. Recomendado.' }
         $ui.BtnPrivRecUblockInstall.IsEnabled = -not $zr.UblockInstalled
         $ui.BtnPrivRecUblockInstall.Content   = if ($zr.UblockInstalled) { 'Ya instalado' } else { 'Instalar uBlock Origin' }
     }
@@ -849,11 +851,11 @@ function Set-EmiStatusView {
     if ($D.ContainsKey('AnyDesk') -and $D.AnyDesk) {
         $a = $D.AnyDesk
         if ($a.Installed) {
-            $ui.TbAnyState.Text = 'AnyDesk ya esta instalado en este equipo.'
-            $ui.TbAnyId.Text    = if ($a.Id) { 'Tu direccion de AnyDesk: ' + $a.Id } else { 'Abre AnyDesk para ver tu direccion (9 o 10 cifras).' }
+            $ui.TbAnyState.Text = 'AnyDesk ya está instalado en este equipo.'
+            $ui.TbAnyId.Text    = if ($a.Id) { 'Tu dirección de AnyDesk: ' + $a.Id } else { 'Abre AnyDesk para ver tu dirección (9 o 10 cifras).' }
             $ui.BtnAnyOpen.IsEnabled = $true
         } else {
-            $ui.TbAnyState.Text = 'AnyDesk todavia no esta instalado.'
+            $ui.TbAnyState.Text = 'AnyDesk todavía no está instalado.'
             $ui.TbAnyId.Text    = if ($a.Downloaded) { 'Ya tienes AnyDesk.exe en Descargas: abrelo para instalarlo.' }
                                   else { 'Empieza por el paso 1 para descargarlo.' }
             $ui.BtnAnyOpen.IsEnabled = $false
@@ -981,20 +983,20 @@ $ui.BtnOneClick.Add_Click({
         $lst = { param($names) if (@($names).Count -eq 0) { '   (nada)' } else { (@($names) | ForEach-Object { '   - ' + $_ }) -join "`n" } }
 
         $b  = '1. Limpieza de disco: ' + @($plan.CleanNames).Count + ' ubicaciones. NO se puede deshacer.' + $nl + (& $lst $plan.CleanNames) + $nl + $nl
-        $b += '2. Optimizaciones de Windows 11: ' + @($plan.TweakNames).Count + ' ajustes (reversibles desde Registro y deshacer).' + $nl + (& $lst $plan.TweakNames) + $nl + $nl
-        $b += '3. Telemetria y privacidad: ' + @($plan.PrivNames).Count + ' ajustes (reversibles desde Registro y deshacer).' + $nl + (& $lst $plan.PrivNames) + $nl + $nl
+        $b += '2. Optimizaciones de Windows 11: ' + @($plan.TweakNames).Count + ' ajustes (reversibles desde Historial y deshacer).' + $nl + (& $lst $plan.TweakNames) + $nl + $nl
+        $b += '3. Telemetría y privacidad: ' + @($plan.PrivNames).Count + ' ajustes (reversibles desde Historial y deshacer).' + $nl + (& $lst $plan.PrivNames) + $nl + $nl
         $b += '4. Programas de arranque: se quitan ' + @($plan.Startup).Count + ' (se pueden reactivar en Arranque).' + $nl + (& $lst @($plan.Startup | ForEach-Object { $_.Name })) + $nl + $nl
-        $b += '5. Inicio rapido: ' + $(if ($plan.FastOn) { 'se desactiva (reversible).' } else { 'ya esta desactivado, no se toca.' }) + $nl + $nl
+        $b += '5. Inicio rápido: ' + $(if ($plan.FastOn) { 'se desactiva (reversible).' } else { 'ya está desactivado, no se toca.' }) + $nl + $nl
         $b += '6. Firewall de ESET (KB332): ' + $(if ($plan.Eset) { [string]@($plan.EsetGroups).Count + ' grupos de reglas (se pueden quitar en ESET).' + $nl + (& $lst $plan.EsetGroups) } else { 'omitido.' }) + $nl + $nl
-        $b += '7. Navegador predeterminado: ' + $(if (-not $plan.Zen) { 'omitido.' } elseif (-not $plan.ZenInstalled) { 'Zen no esta instalado, no se toca.' } elseif ($plan.ZenDefault) { 'Zen ya es el predeterminado.' } else { 'se pone Zen como predeterminado.' }) + $nl + $nl
-        $b += 'Punto de restauracion antes de empezar: ' + $(if ($plan.Restore) { 'si.' } else { 'NO (desmarcado).' })
+        $b += '7. Navegador predeterminado: ' + $(if (-not $plan.Zen) { 'omitido.' } elseif (-not $plan.ZenInstalled) { 'Zen no está instalado, no se toca.' } elseif ($plan.ZenDefault) { 'Zen ya es el predeterminado.' } else { 'se pone Zen como predeterminado.' }) + $nl + $nl
+        $b += 'Punto de restauración antes de empezar: ' + $(if ($plan.Restore) { 'si.' } else { 'NO (desmarcado).' })
 
         $warn = 'Lo que NO se puede deshacer: la limpieza de disco borra para siempre el contenido de esas carpetas'
         if ($plan.Recycle) { $warn += ' y VACIA LA PAPELERA (lo que haya en ella no se podra recuperar)' }
         $warn += '. Revisa la lista antes de continuar.'
 
         $ok = Show-EmiConfirmList -Title 'Optimizar ahora: confirmar' -YesText 'Optimizar ahora' `
-              -Intro 'Se aplicara lo siguiente en este equipo:' -Body $b -Warning $warn
+              -Intro 'Se aplicará lo siguiente en este equipo:' -Body $b -Warning $warn
         if (-not $ok) { Write-EmiLog 'Mantenimiento cancelado por el usuario.' Info; return }
         Start-EmiMaintenance $plan
     }
@@ -1064,7 +1066,7 @@ function Start-EmiMaintenance {
         $extra = 'Espacio liberado: ' + (Format-EmiSize $freed) + "`n`n" + 'Conviene reiniciar el equipo para que todo se aplique.'
         $rpFailed = ($res -and $res.Restore -eq $false)
         if ($res -and $res.Cancelled) { $extra = 'Cancelado a mitad: lo hecho hasta ese paso queda aplicado (lo registrado se puede deshacer en Historial y deshacer).' + "`n`n" + $extra }
-        if ($rpFailed) { $extra = 'ATENCION: no se pudo crear el punto de restauracion, asi que no hay uno de antes de estos cambios. Lo registrado se puede revertir desde Registro y deshacer.' + "`n`n" + $extra }
+        if ($rpFailed) { $extra = 'ATENCION: no se pudo crear el punto de restauración, así que no hay uno de antes de estos cambios. Lo registrado se puede deshacer desde Historial y deshacer.' + "`n`n" + $extra }
         Show-EmiTaskDone 'Mantenimiento terminado' -Extra $extra -Warn:$rpFailed
     }
 }
@@ -1099,7 +1101,7 @@ $ui.BtnDiskClean.Add_Click({
     $risky = @($sel | Where-Object { $_.Category -eq 'Revisar' })
     if ($risky.Count -gt 0) {
         $n = ($risky | ForEach-Object { $_.Name }) -join "`n - "
-        $riskyMsg = 'Has marcado ubicaciones que pueden contener archivos tuyos:' + "`n`n" + ' - ' + $n + "`n`n" + 'Continuar?'
+        $riskyMsg = 'Has marcado ubicaciones que pueden contener archivos tuyos:' + "`n`n" + ' - ' + $n + "`n`n" + '¿Continuar?'
         $ans = [System.Windows.MessageBox]::Show($riskyMsg, 'Confirmar limpieza', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
         if ($ans -ne 'Yes') { return }
     }
@@ -1118,7 +1120,7 @@ $ui.BtnDiskClean.Add_Click({
 })
 
 $ui.BtnDiskDism.Add_Click({
-    $dismMsg = 'Se limpiaran las versiones antiguas de los componentes de Windows (WinSxS) con DISM.' + "`n`n" + 'Puede tardar varios minutos y NO se puede deshacer: despues ya no podras desinstalar las actualizaciones de Windows que ya estan instaladas.' + "`n`n" + 'Continuar?'
+    $dismMsg = 'Se limpiarán las versiones antiguas de los componentes de Windows (WinSxS) con DISM.' + "`n`n" + 'Puede tardar varios minutos y NO se puede deshacer: después ya no podrás desinstalar las actualizaciones de Windows que ya están instaladas.' + "`n`n" + '¿Continuar?'
     $ans = [System.Windows.MessageBox]::Show($dismMsg, 'Limpiar componentes (DISM)', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
     Start-EmiWork -Label 'DISM: limpiando componentes...' -Work { return (Invoke-EmiComponentCleanup) } -OnDone {
@@ -1155,7 +1157,7 @@ $ui.BtnDeleteBig.Add_Click({
     $sel = Get-EmiChecked $ui.LvBig
     if ($sel.Count -eq 0) { return }
     $tot = ($sel | Measure-Object Size -Sum).Sum
-    $recMsg = 'Se enviaran ' + $sel.Count + ' elementos a la papelera (' + (Format-EmiSize $tot) + ').' + "`n" + 'Podras recuperarlos desde la papelera.' + "`n`n" + 'Algunos pueden omitirse (unidades de red o extraibles, discos sin papelera o archivos que superan su cuota): no se borran y el motivo queda en el registro.' + "`n`n" + 'Continuar?'
+    $recMsg = 'Se enviarán ' + $sel.Count + ' elementos a la papelera (' + (Format-EmiSize $tot) + ').' + "`n" + 'Podras recuperarlos desde la papelera.' + "`n`n" + 'Algunos pueden omitirse (unidades de red o extraibles, discos sin papelera o archivos que superan su cuota): no se borran y el motivo queda en el registro.' + "`n`n" + '¿Continuar?'
     $ans = [System.Windows.MessageBox]::Show($recMsg, 'Confirmar', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
 
@@ -1180,7 +1182,7 @@ $ui.BtnTweakApply.Add_Click({
         return (Invoke-EmiTweakSet -Ids $P.Ids)
     } -OnDone {
         Update-EmiHome
-        Show-EmiTaskDone 'Optimizacion aplicada' -Extra 'Algunos cambios necesitan reiniciar el Explorador o el equipo.'
+        Show-EmiTaskDone 'Optimización aplicada' -Extra 'Algunos cambios necesitan reiniciar el Explorador o el equipo.'
     }
 })
 
@@ -1205,10 +1207,10 @@ $ui.BtnPrivApply.Add_Click({
     $privBody = (@($selP | ForEach-Object { ' - ' + $_.Name + '  (' + $_.Detail + ')' }) -join "`n")
     $privWarn = ''
     if ($ids -contains 'HostsBlock') { $privWarn = 'Incluye el bloqueo por el archivo hosts: modifica C:\Windows\System32\drivers\etc\hosts (se guarda una copia y se puede revertir).' }
-    $ok = Show-EmiConfirmList -Title 'Telemetria: confirmar' -YesText 'Aplicar' -Body $privBody -Warning $privWarn `
-          -Intro ('Se aplicaran ' + $ids.Count + ' ajustes de privacidad. Se pueden revertir desde Registro y deshacer.')
+    $ok = Show-EmiConfirmList -Title 'Telemetría: confirmar' -YesText 'Aplicar' -Body $privBody -Warning $privWarn `
+          -Intro ('Se aplicarán ' + $ids.Count + ' ajustes de privacidad. Se pueden deshacer desde Historial y deshacer.')
     if (-not $ok) { return }
-    Start-EmiWork -Label 'Desactivando telemetria...' -Parameters @{ Ids = $ids } -Work {
+    Start-EmiWork -Label 'Desactivando telemetría...' -Parameters @{ Ids = $ids } -Work {
         return (Invoke-EmiPrivacySet -Ids $P.Ids)
     } -OnDone { Update-EmiHome; Show-EmiTaskDone 'Ajustes de privacidad aplicados' }
 })
@@ -1244,7 +1246,7 @@ $ui.BtnPrivRecZenDownload.Add_Click({ Open-EmiUrl 'https://zen-browser.app/' }) 
 $ui.BtnPrivRecZenSet.Add_Click({
     Start-EmiWork -Label 'Configurando Zen...' -Work { return (Set-EmiZenDefault) } -OnDone {
         Update-EmiHome
-        Show-EmiTaskDone 'Configuracion de Zen' -OnlyIfIssues
+        Show-EmiTaskDone 'Configuración de Zen' -OnlyIfIssues
     }
 })
 
@@ -1346,7 +1348,7 @@ $ui.BtnVaultAdd.Add_Click({
     $email = $ui.TxtVaultEmail.Text.Trim()
     $pw    = Get-EmiVaultFormPassword
     if (-not $app -or -not $pw) {
-        [System.Windows.MessageBox]::Show('Rellena al menos el nombre del servicio y la contrasena.', 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
+        [System.Windows.MessageBox]::Show('Rellena al menos el nombre del servicio y la contraseña.', 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
         return
     }
     $id = Add-EmiVaultEntry -AppName $app -Email $email -Password $pw -Notes ''
@@ -1380,7 +1382,7 @@ $ui.BtnVaultCopyEmail.Add_Click({
 $ui.BtnVaultDelete.Add_Click({
     $sel = $ui.LvVault.SelectedItem
     if (-not $sel) { return }
-    $delMsg = 'Eliminar la entrada ''' + $sel.AppName + '''? Esta accion no se puede deshacer.'
+    $delMsg = 'Eliminar la entrada ''' + $sel.AppName + '''? Esta acción no se puede deshacer.'
     $ans = [System.Windows.MessageBox]::Show($delMsg, 'Confirmar', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
     $removed = Remove-EmiVaultEntry -Id $sel.Id
@@ -1401,15 +1403,15 @@ $ui.BtnDebloatApply.Add_Click({
     $ids  = @($selD | ForEach-Object { $_.Tag })
     if ($ids.Count -eq 0) { return }
     $dbBody = (@($selD | ForEach-Object { ' - ' + $_.Name + $(if ($_.Category) { '  [' + $_.Category + ']' } else { '' }) }) -join "`n")
-    $ok = Show-EmiConfirmList -Title 'Debloat: confirmar' -YesText 'Quitar' -Body $dbBody `
-          -Intro ('Se quitaran ' + $ids.Count + ' apps o caracteristicas de Windows:') `
-          -Warning 'Las apps se desinstalan de tu usuario y dejan de instalarse en los usuarios nuevos. Algunas solo se recuperan reinstalandolas desde Microsoft Store y otras no se pueden reinstalar. Las caracteristicas de Windows se pueden volver a activar.'
+    $ok = Show-EmiConfirmList -Title 'Quitar apps preinstaladas: confirmar' -YesText 'Quitar' -Body $dbBody `
+          -Intro ('Se quitarán ' + $ids.Count + ' apps o características de Windows:') `
+          -Warning 'Las apps se desinstalan de tu usuario y dejan de instalarse en los usuarios nuevos. Algunas solo se recuperan reinstalandolas desde Microsoft Store y otras no se pueden reinstalar. Las características de Windows se pueden volver a activar.'
     if (-not $ok) { return }
-    Start-EmiWork -Label 'Aplicando debloat...' -Parameters @{ Ids = $ids } -Work {
+    Start-EmiWork -Label 'Quitando apps preinstaladas...' -Parameters @{ Ids = $ids } -Work {
         return (Invoke-EmiDebloatSet -Ids $P.Ids)
     } -OnDone {
         Update-EmiHome
-        Show-EmiTaskDone 'Debloat terminado' -Extra 'Algunos cambios de caracteristicas de Windows necesitan reiniciar.'
+        Show-EmiTaskDone 'Apps preinstaladas quitadas' -Extra 'Algunos cambios de características de Windows necesitan reiniciar.'
         # Volver a leer el catalogo (apps quitadas, caracteristicas cambiadas), en segundo plano
         Start-EmiDebloatLoad
     }
@@ -1446,8 +1448,8 @@ $ui.BtnAppsUninstall.Add_Click({
         return
     }
     $names = ($sel | ForEach-Object { $_.Name }) -join "`n - "
-    $uninstAppsMsg = 'Se desinstalaran ' + $sel.Count + ' apps del usuario actual:' + "`n`n" + ' - ' + $names + "`n`n" + 'La app puede volver a instalarse desde Microsoft Store o con el comando registrado en Deshacer. Continuar?'
-    $ans = [System.Windows.MessageBox]::Show($uninstAppsMsg, 'Confirmar desinstalacion', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
+    $uninstAppsMsg = 'Se desinstalarán ' + $sel.Count + ' apps del usuario actual:' + "`n`n" + ' - ' + $names + "`n`n" + 'La app puede volver a instalarse desde Microsoft Store o con el comando registrado en Deshacer. ¿Continuar?'
+    $ans = [System.Windows.MessageBox]::Show($uninstAppsMsg, 'Confirmar desinstalación', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
 
     $ids = @($sel | ForEach-Object { $_.Tag })
@@ -1467,16 +1469,16 @@ $ui.BtnAppsUninstall.Add_Click({
 $ui.BtnAppsClearCache.Add_Click({
     $sel = @(Get-EmiChecked $ui.LvApps)
     if ($sel.Count -eq 0) {
-        [System.Windows.MessageBox]::Show('Marca las apps cuya cache quieres limpiar.','Another''s Toolbox','OK','Information') | Out-Null
+        [System.Windows.MessageBox]::Show('Marca las apps cuya caché quieres limpiar.','Another''s Toolbox','OK','Information') | Out-Null
         return
     }
-    $cacheMsg = 'Se borrara la cache (LocalCache, Temp e INetCache) de ' + $sel.Count + ' apps. La app se regenerara sola al abrirse. Continuar?'
-    $ans = [System.Windows.MessageBox]::Show($cacheMsg, 'Limpiar cache', 'YesNo', 'Question', [System.Windows.MessageBoxResult]::No)
+    $cacheMsg = 'Se borrará la caché (LocalCache, Temp e INetCache) de ' + $sel.Count + ' apps. La app se regenerara sola al abrirse. ¿Continuar?'
+    $ans = [System.Windows.MessageBox]::Show($cacheMsg, 'Limpiar caché', 'YesNo', 'Question', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
 
     # El Tag guarda el PackageFullName; el modulo resuelve la familia desde ahi
     $ids = @($sel | ForEach-Object { $_.Tag })
-    Start-EmiWork -Label 'Limpiando cache...' -Parameters @{ Ids = $ids } -Work {
+    Start-EmiWork -Label 'Limpiando caché...' -Parameters @{ Ids = $ids } -Work {
         $freed = 0
         foreach ($id in $P.Ids) { $freed += (Clear-EmiAppCacheByFullName -PackageFullName $id) }
         Write-EmiLog "Cache limpiada: $(Format-EmiSize $freed) liberados en total." Ok
@@ -1484,7 +1486,7 @@ $ui.BtnAppsClearCache.Add_Click({
     } -OnDone {
         param($r)
         $cf = 0; if ($r) { $cf = @($r)[-1] }
-        Show-EmiTaskDone 'Cache limpiada' -Extra ('Liberado: ' + (Format-EmiSize $cf))
+        Show-EmiTaskDone 'Caché limpiada' -Extra ('Liberado: ' + (Format-EmiSize $cf))
         $ui.BtnAppsScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
         Update-EmiHome
     }
@@ -1536,8 +1538,8 @@ $ui.BtnStoreUninstall.Add_Click({
         return
     }
     $list = ($selected -join "`n - ")
-    $uninstMsg = 'Se buscaran y desinstalaran ' + $selected.Count + ' apps de Another Suite:' + "`n`n" + ' - ' + $list + "`n`n" + 'Continuar?'
-    $ans = [System.Windows.MessageBox]::Show($uninstMsg, 'Confirmar desinstalacion', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
+    $uninstMsg = 'Se buscarán y desinstalarán ' + $selected.Count + ' apps de Another Suite:' + "`n`n" + ' - ' + $list + "`n`n" + '¿Continuar?'
+    $ans = [System.Windows.MessageBox]::Show($uninstMsg, 'Confirmar desinstalación', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
 
     # Editores admitidos en ...\Uninstall para las apps de Another Suite (exactos)
@@ -1587,7 +1589,7 @@ $ui.BtnEsetApply.Add_Click({
     $g = @((Get-EmiChecked $ui.LvEset) | ForEach-Object { $_.Tag })
     if ($g.Count -eq 0) { return }
     $dns = [bool]$ui.ChkEsetDns.IsChecked
-    $esetMsg = 'Se crearan reglas en el Firewall de Windows para ' + $g.Count + ' grupos de servidores de ESET (KB332).' + "`n`n" + 'Se pueden quitar despues con «Quitar reglas». Continuar?'
+    $esetMsg = 'Se crearán reglas en el Firewall de Windows para ' + $g.Count + ' grupos de servidores de ESET (KB332).' + "`n`n" + 'Se pueden quitar después con «Quitar reglas». ¿Continuar?'
     $ans = [System.Windows.MessageBox]::Show($esetMsg, 'Reglas de ESET', 'YesNo', 'Question', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
 
@@ -1598,7 +1600,7 @@ $ui.BtnEsetApply.Add_Click({
 })
 
 $ui.BtnEsetTest.Add_Click({
-    Start-EmiWork -Label 'Probando conexion con ESET...' -Work {
+    Start-EmiWork -Label 'Probando conexión con ESET...' -Work {
         return ,(Test-EmiEsetConnectivity)
     } -OnDone {
         param($r)
@@ -1606,12 +1608,12 @@ $ui.BtnEsetTest.Add_Click({
         $bad = @($items | Where-Object { $_.Category -eq 'fail' })
         $msg = if ($bad.Count -eq 0) { 'Todos los servidores de ESET responden correctamente.' }
                else { 'No responden ' + $bad.Count + ' de ' + $items.Count + ':' + "`n`n" + ' - ' + (($bad | ForEach-Object { $_.Name + ' ' + $_.Path }) -join "`n - ") }
-        [System.Windows.MessageBox]::Show($msg, 'Prueba de conexion', 'OK', 'Information') | Out-Null
+        [System.Windows.MessageBox]::Show($msg, 'Prueba de conexión', 'OK', 'Information') | Out-Null
     }
 })
 
 $ui.BtnEsetRemove.Add_Click({
-    $ans = [System.Windows.MessageBox]::Show('Se eliminaran todas las reglas ESET KB332 creadas por esta app. Continuar?',
+    $ans = [System.Windows.MessageBox]::Show('Se eliminarán todas las reglas ESET KB332 creadas por está app. ¿Continuar?',
         'Confirmar', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
     Start-EmiWork -Label 'Quitando reglas...' -Work { return (Remove-EmiEsetFirewall) } -OnDone { Update-EmiHome; Show-EmiTaskDone 'Reglas de ESET quitadas' }
@@ -1673,8 +1675,8 @@ function Invoke-EmiProcAction {
     if ($sel.Count -eq 0) { return }
 
     $names = ($sel | ForEach-Object { $_.Name }) -join ', '
-    $extra = if ($Block) { "`n`n" + 'Ademas, a los procesos de la categoria Telemetria se les cortara Internet con una regla de firewall (reversible desde Registro y deshacer). Al resto solo se les cierra.' } else { '' }
-    $procMsg = 'Se cerraran: ' + $names + $extra + "`n`n" + 'Guarda tu trabajo antes. Continuar?'
+    $extra = if ($Block) { "`n`n" + 'Además, a los procesos de la categoria Telemetría se les cortara Internet con una regla de firewall (se puede deshacer desde Historial y deshacer). Al resto solo se les cierra.' } else { '' }
+    $procMsg = 'Se cerrarán: ' + $names + $extra + "`n`n" + 'Guarda tu trabajo antes. ¿Continuar?'
     $ans = [System.Windows.MessageBox]::Show($procMsg, 'Confirmar', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
 
@@ -1708,12 +1710,12 @@ $ui.BtnVortexRemove.Add_Click({
     $sel = @((Get-EmiChecked $ui.LvVortex) | Where-Object { -not $_.Locked })
     if ($sel.Count -eq 0) { return }
     $tags = @($sel | ForEach-Object { $_.Tag })
-    $purgeMsg = 'Se purgaran ' + $sel.Count + ' mods de las carpetas de juego y se eliminaran del staging.' + "`n`n" + 'Continuar?'
-    $ans = [System.Windows.MessageBox]::Show($purgeMsg, 'Confirmar purga', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
+    $purgeMsg = 'Se purgarán ' + $sel.Count + ' mods de las carpetas de juego y se eliminarán de la carpeta de preparación de Vortex (staging).' + "`n`n" + '¿Continuar?'
+    $ans = [System.Windows.MessageBox]::Show($purgeMsg, 'Confirmar: quitar mods', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
-    Start-EmiWork -Label 'Purgando mods de Vortex...' -Parameters @{ Tags = $tags } -Work {
+    Start-EmiWork -Label 'Quitando mods de Vortex...' -Parameters @{ Tags = $tags } -Work {
         return (Remove-EmiVortexMods -Tags $P.Tags)
-    } -OnDone { Show-EmiTaskDone 'Purga de mods terminada'; $ui.BtnVortexScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
+    } -OnDone { Show-EmiTaskDone 'Mods de Vortex quitados'; $ui.BtnVortexScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 })
 
 $ui.BtnVortexFullClean.Add_Click({
@@ -1722,7 +1724,7 @@ $ui.BtnVortexFullClean.Add_Click({
         param($r)
         $info = @($r)[-1]
         if (-not $info -or -not $info.Installed) {
-            [System.Windows.MessageBox]::Show('Vortex no esta instalado en este equipo.', 'Another''s Toolbox', 'OK', 'Information') | Out-Null
+            [System.Windows.MessageBox]::Show('Vortex no está instalado en este equipo.', 'Another''s Toolbox', 'OK', 'Information') | Out-Null
             return
         }
         Confirm-EmiVortexFullClean
@@ -1730,27 +1732,27 @@ $ui.BtnVortexFullClean.Add_Click({
 })
 
 function Confirm-EmiVortexFullClean {
-    $vortexMsg = 'ELIMINACION COMPLETA DE VORTEX' + "`n`n" + 'Se purgaran TODOS los mods desplegados, se borrara APPDATA\Vortex (staging, descargas, perfiles, base de datos) y se desinstalara Vortex.' + "`n`n" + 'Esta accion es IRREVERSIBLE.' + "`n`n" + 'Continuar?'
-    $ans = [System.Windows.MessageBox]::Show($vortexMsg, 'Confirmar eliminacion total', 'YesNo', 'Error', [System.Windows.MessageBoxResult]::No)
+    $vortexMsg = 'ELIMINACION COMPLETA DE VORTEX' + "`n`n" + 'Se purgarán TODOS los mods desplegados, se borrará APPDATA\Vortex (staging, descargas, perfiles, base de datos) y se desinstalara Vortex.' + "`n`n" + 'Esta acción es IRREVERSIBLE.' + "`n`n" + '¿Continuar?'
+    $ans = [System.Windows.MessageBox]::Show($vortexMsg, 'Confirmar eliminación total', 'YesNo', 'Error', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
     Start-EmiWork -Label 'Eliminando Vortex completamente...' -Work {
         return (Remove-EmiVortexFull)
     } -OnDone {
         Update-EmiHome
-        Show-EmiTaskDone 'Eliminacion de Vortex terminada'
+        Show-EmiTaskDone 'Eliminación de Vortex terminada'
         $ui.BtnVortexScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
     }
 }
 
 $ui.BtnVortexSkyrimClean.Add_Click({
-    $skyrimMsg = 'FORCE CLEAN SKYRIM' + "`n`n" + 'Esta accion ELIMINARA COMPLETAMENTE:' + "`n`n" + '1. TODOS los mods de Vortex' + "`n" + '2. TODOS los datos de Vortex' + "`n" + '3. Vortex se desinstalara' + "`n" + '4. TODAS las carpetas de Skyrim (Data, Mods, configuraciones)' + "`n" + '5. TODOS los archivos de usuario (Skyrim.ini, SkyrimPrefs.ini)' + "`n" + '6. Manifiestos de despliegue de Vortex' + "`n" + '7. Carpetas en Documentos\My Games\Skyrim' + "`n`n" + 'Esta accion es IRREVERSIBLE y borrara completamente Skyrim.' + "`n`n" + 'Continuar?'
-    $ans = [System.Windows.MessageBox]::Show($skyrimMsg, 'Confirmar Force Clean Skyrim', 'YesNo', 'Error', [System.Windows.MessageBoxResult]::No)
+    $skyrimMsg = 'BORRAR SKYRIM POR COMPLETO' + "`n`n" + 'Esta acción ELIMINARA COMPLETAMENTE:' + "`n`n" + '1. TODOS los mods de Vortex' + "`n" + '2. TODOS los datos de Vortex' + "`n" + '3. Vortex se desinstalara' + "`n" + '4. TODAS las carpetas de Skyrim (Data, Mods, configuraciones)' + "`n" + '5. TODOS los archivos de usuario (Skyrim.ini, SkyrimPrefs.ini)' + "`n" + '6. Manifiestos de despliegue de Vortex' + "`n" + '7. Carpetas en Documentos\My Games\Skyrim' + "`n`n" + 'Esta acción es IRREVERSIBLE y borrará completamente Skyrim.' + "`n`n" + '¿Continuar?'
+    $ans = [System.Windows.MessageBox]::Show($skyrimMsg, 'Confirmar: borrar Skyrim por completo', 'YesNo', 'Error', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
-    Start-EmiWork -Label 'Ejecutando Force Clean Skyrim...' -Work {
+    Start-EmiWork -Label 'Borrando Skyrim por completo...' -Work {
         return (Remove-EmiVortexSkyrimFull)
     } -OnDone {
         Update-EmiHome
-        Show-EmiTaskDone 'Force Clean Skyrim terminado'
+        Show-EmiTaskDone 'Borrado completo de Skyrim terminado'
         $ui.BtnVortexScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
     }
 })
@@ -1780,17 +1782,17 @@ $ui.BtnZenSettings.Add_Click({ [void](Open-EmiDefaultAppsSettings) })
 
 $ui.BtnFastDisable.Add_Click({
     $h = [bool]$ui.ChkHiber.IsChecked
-    Start-EmiWork -Label 'Desactivando inicio rapido...' -Parameters @{ H = $h } -Work {
+    Start-EmiWork -Label 'Desactivando inicio rápido...' -Parameters @{ H = $h } -Work {
         if ($P.H) { return (Disable-EmiFastStartup -AlsoDisableHibernation) }
         return (Disable-EmiFastStartup)
-    } -OnDone { Update-EmiHome; Show-EmiTaskDone 'Inicio rapido desactivado' -OnlyIfIssues }
+    } -OnDone { Update-EmiHome; Show-EmiTaskDone 'Inicio rápido desactivado' -OnlyIfIssues }
 })
 
 $ui.BtnFastEnable.Add_Click({
     # En segundo plano y por la cola de tareas: escribir en el diario desde la
     # UI mientras otra tarea lo reescribe perdia entradas
-    Start-EmiWork -Label 'Reactivando inicio rapido...' -Work { return (Enable-EmiFastStartup) } -OnDone {
-        Update-EmiHome; Show-EmiTaskDone 'Inicio rapido reactivado' -OnlyIfIssues
+    Start-EmiWork -Label 'Reactivando inicio rápido...' -Work { return (Enable-EmiFastStartup) } -OnDone {
+        Update-EmiHome; Show-EmiTaskDone 'Inicio rápido reactivado' -OnlyIfIssues
     }
 })
 
@@ -1799,7 +1801,7 @@ $ui.BtnFastEnable.Add_Click({
 # ======================================================================
 
 $ui.BtnAnyDownload.Add_Click({
-    $anyMsg = 'Se abrira anydesk.com en tu navegador para descargar AnyDesk.' + "`n`n" + 'Descarga solo desde esa pagina oficial. Continuar?'
+    $anyMsg = 'Se abrirá anydesk.com en tu navegador para descargar AnyDesk.' + "`n`n" + 'Descarga solo desde esa página oficial. ¿Continuar?'
     $ans = [System.Windows.MessageBox]::Show($anyMsg, 'Descargar AnyDesk', 'YesNo', 'Question')
     if ($ans -ne 'Yes') { return }
     [void](Open-EmiAnyDeskDownload)
@@ -1807,7 +1809,7 @@ $ui.BtnAnyDownload.Add_Click({
 $ui.BtnAnyFolder.Add_Click({ [void](Open-EmiDownloadsFolder) })
 $ui.BtnAnyOpen.Add_Click({
     if (-not (Start-EmiAnyDesk)) {
-        [System.Windows.MessageBox]::Show('AnyDesk todavia no esta instalado. Sigue los pasos 1 a 4.','AnyDesk','OK','Information') | Out-Null
+        [System.Windows.MessageBox]::Show('AnyDesk todavía no está instalado. Sigue los pasos 1 a 4.','AnyDesk','OK','Information') | Out-Null
     }
 })
 
@@ -1826,18 +1828,18 @@ $ui.BtnCancel.Add_Click({
 $ui.BtnUndoAll.Add_Click({
     $c = @(Get-EmiJournal).Count
     if ($c -eq 0) { [System.Windows.MessageBox]::Show('No hay cambios registrados.','Another''s Toolbox','OK','Information') | Out-Null; return }
-    $undoMsg = 'Se revertiran ' + $c + ' cambios (registro, servicios, tareas y reglas de firewall). Continuar?'
-    $ans = [System.Windows.MessageBox]::Show($undoMsg, 'Revertir todo', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
+    $undoMsg = 'Se revertirán ' + $c + ' cambios (registro, servicios, tareas y reglas de firewall). ¿Continuar?'
+    $ans = [System.Windows.MessageBox]::Show($undoMsg, 'Deshacer todo', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
 
-    Start-EmiWork -Label 'Revirtiendo cambios...' -Work { return (Undo-EmiChanges) } -OnDone {
+    Start-EmiWork -Label 'Deshaciendo cambios...' -Work { return (Undo-EmiChanges) } -OnDone {
         Update-EmiHome
         $left = @(Get-EmiJournal).Count
         if ($left -gt 0) {
             $undoDone = 'Se revirtieron ' + [string](@($args[0])[-1]) + ' cambios. ' + $left + ' no se pudieron revertir y siguen registrados (detalles en el registro). Reinicia el equipo y vuelve a intentarlo.'
             [System.Windows.MessageBox]::Show($undoDone + (Get-EmiTaskIssueNote), 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
         } else {
-            Show-EmiTaskDone 'Cambios revertidos' -Extra 'Reinicia el equipo para que todo vuelva a su estado anterior.'
+            Show-EmiTaskDone 'Cambios deshechos' -Extra 'Reinicia el equipo para que todo vuelva a su estado anterior.'
         }
         Update-EmiJournalList
     }
@@ -1979,7 +1981,7 @@ $win.Dispatcher.Add_UnhandledException({
         }
         try { Write-EmiLog ('Error en la interfaz' + $where + ': ' + $msg) Error } catch { }
         Write-RuntimeError -Message ('Error en la interfaz' + $where + ': ' + $ex.ToString())
-        $uiErrMsg = 'Esta accion ha fallado, pero la aplicacion sigue abierta.' + "`n`n" + $msg + "`n`n" + 'Los detalles estan en el registro.'
+        $uiErrMsg = 'Esta acción ha fallado, pero la aplicación sigue abierta.' + "`n`n" + $msg + "`n`n" + 'Los detalles están en el registro.'
         [System.Windows.MessageBox]::Show($uiErrMsg, 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
     } catch { } finally { $script:InUiFailure = $false }
 })
@@ -2104,5 +2106,5 @@ $win.Add_Closed({
     $fullMsg = $errHead + "`n`n" + $errMsg + "`n`n" + 'Línea: ' + $errLine + "`n" + 'en ' + $errFile
     Write-RuntimeError -Message $fullMsg
     [void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
-    [System.Windows.Forms.MessageBox]::Show($fullMsg + "`n`nLog: " + $(try { Join-Path (Get-EmiDataDir) 'runtime-error.log' } catch { Join-Path $env:LOCALAPPDATA 'EmiToolkit\runtime-error.log' }), 'EmiToolkit Error', 'OK', 'Error') | Out-Null
+    [System.Windows.Forms.MessageBox]::Show($fullMsg + "`n`nLog: " + $(try { Join-Path (Get-EmiDataDir) 'runtime-error.log' } catch { Join-Path $env:LOCALAPPDATA 'EmiToolkit\runtime-error.log' }), 'Another''s Toolbox: error', 'OK', 'Error') | Out-Null
 }

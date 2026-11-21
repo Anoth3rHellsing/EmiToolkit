@@ -1,5 +1,45 @@
-EMI TOOLKIT / ANOTHER'S TOOLBOX - CHANGELOG
-=============================================
+ANOTHER'S TOOLBOX - CHANGELOG
+=============================
+
+[0.4.0] — 2026-11 (tanda 2: interfaz)
+
+AÑADIDO:
+- Historial y deshacer: lista de cada cambio del diario (cuándo, tipo, qué, si se
+  puede deshacer) y «Deshacer el seleccionado» para un solo cambio.
+- «Cancelar» en las tareas largas (para entre pasos, nunca a mitad de un cambio).
+- Versión en la barra de título.
+
+CAMBIADO:
+- Arranque más rápido: un solo bloque de C# compilado y guardado en caché
+  protegida (%ProgramData%\EmiToolkit\cache, por hash del código); el puente de
+  Windows Hello solo se compila al desbloquear la bóveda. Tiempo de arranque en
+  el historial.
+- Estado del equipo, lista de apps preinstaladas y Vortex, en segundo plano; un
+  único runspace reutilizado para todas las tareas.
+- La ventana encaja en el área de trabajo (125-150 %), columnas proporcionales,
+  barra horizontal y texto completo en cada fila.
+- Accesibilidad: contraste de botones ≥ 5:1, anillo de foco doble, nombres para
+  Narrador, teclas de acceso, contraste alto de Windows, historial por colores.
+- Barra de progreso indeterminada cuando no hay porcentaje y continua en los 7
+  pasos del mantenimiento; «Seleccionado: X» se actualiza al marcar.
+- Contraseña de la bóveda en un campo oculto con «Mostrar».
+- Textos: tildes y eñes, «Historial» para el log y «Registro de Windows» para el
+  registro, «deshacer» como verbo único, «Apps preinstaladas» en vez de Debloat.
+
+[0.3.0] — 2026-11 (tanda 1: seguridad y estabilidad)
+
+CAMBIADO:
+- «Optimizar ahora» enseña la lista exacta de cambios y pide confirmación; la
+  papelera ya no se vacía sin avisar.
+- Los datos (diario de deshacer, copia de hosts, logs) viven en
+  %ProgramData%\EmiToolkit con ACL solo de administradores; el diario es JSONL y
+  cada entrada se valida antes de deshacerla.
+- Comprobación de la carpeta de la app: si la pueden modificar usuarios sin
+  privilegios, se ofrece copiarla a Program Files.
+- Los módulos se leen una vez al arrancar y se cargan en memoria.
+- Las tareas bloquean la interfaz completa y su resumen cuenta avisos y errores;
+  aviso al cerrar con una tarea en marcha; errores de la interfaz sin cerrar la app.
+- AnyDesk ya no se ejecuta desde Descargas; la bóveda se guarda en el perfil.
 
 [0.2.0] — 2026-09
 
