@@ -223,7 +223,9 @@ function Clear-EmiAppCache {
                 $size = (Get-ChildItem -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue |
                          Measure-Object -Property Length -Sum).Sum
                 if ($null -eq $size) { $size = 0 }
-                Remove-Item -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue
+                # La cache de una app vive en el perfil del usuario (escribible sin ser administrador): se vacia
+                # sin seguir uniones ni enlaces, para que un enlace plantado ahi no haga borrar otra carpeta.
+                Remove-EmiTreeSafe -Path $t -ContentsOnly
                 $freed += [long]$size
             } catch {
                 Write-EmiLog "No se pudo limpiar $t : $($_.Exception.Message)" Warn

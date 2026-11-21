@@ -283,7 +283,7 @@ function Add-EmiHostsBlock {
             return 0
         }
 
-        $backup = Join-Path (Join-Path (Get-EmiRoot) 'Data') 'hosts.backup'
+        $backup = Get-EmiHostsBackupPath   # carpeta de datos protegida (EmiCore)
         Copy-Item -LiteralPath $hosts -Destination $backup -Force
         Add-EmiJournalEntry @{ Kind='File'; Path=$hosts; Backup=$backup; Module='Privacidad' }
 

@@ -66,7 +66,10 @@ function Set-EmiZenDefault {
 
     Write-EmiLog "Zen encontrado en $($zen.Path). Estableciendo como predeterminado..." Step
     try {
-        Start-Process -FilePath $zen.Path -ArgumentList '-setDefaultBrowser' -WindowStyle Hidden -ErrorAction Stop
+        # Sin privilegios y como el usuario: el navegador predeterminado es un
+        # ajuste suyo (HKCU), y zen.exe suele estar en %LOCALAPPDATA%, donde
+        # cualquier programa del usuario lo puede sustituir. Nunca elevado.
+        [void](Start-EmiUnelevated -FilePath $zen.Path -Arguments '-setDefaultBrowser')
         Start-Sleep -Seconds 3
     }
     catch { Write-EmiLog "No se pudo invocar Zen: $($_.Exception.Message)" Warn }
@@ -78,12 +81,12 @@ function Set-EmiZenDefault {
     }
 
     Write-EmiLog 'Windows pide confirmacion manual. Abriendo Configuracion > Aplicaciones predeterminadas...' Warn
-    try { Start-Process 'ms-settings:defaultapps' } catch { }
+    try { Open-EmiUrl 'ms-settings:defaultapps' } catch { }
     return 'NeedsUser'
 }
 
 function Open-EmiDefaultAppsSettings {
-    try { Start-Process 'ms-settings:defaultapps'; return $true } catch { return $false }
+    try { Open-EmiUrl 'ms-settings:defaultapps'; return $true } catch { return $false }
 }
 
 # ---------------------------- INICIO RAPIDO --------------------------
@@ -132,32 +135,49 @@ function Enable-EmiFastStartup {
 
 # ------------------------------- ANYDESK -----------------------------
 
-function Get-EmiAnyDeskInfo {
-    $paths = @(
-        "$env:ProgramFiles\AnyDesk\AnyDesk.exe"
-        "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
-        "$env:APPDATA\AnyDesk\AnyDesk.exe"
-        "$env:ProgramData\AnyDesk\AnyDesk.exe"
-        "$env:USERPROFILE\Downloads\AnyDesk.exe"
-    )
-    $exe = $paths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-    $running = [bool](Get-Process AnyDesk -ErrorAction SilentlyContinue)
+$script:AnyDeskPublisher = @('AnyDesk Software GmbH', 'philandro Software GmbH')
 
-    # El ID se guarda en el archivo de servicio cuando esta instalado como servicio
-    $id = $null
-    if ($exe) {
+function Get-EmiAnyDeskId {
+    <#  Lee la direccion de AnyDesk de su configuracion (ad.anynet.id) sin
+        ejecutar nada. Primero la del servicio instalado, luego la del usuario. #>
+    foreach ($f in @(
+        "$env:ProgramData\AnyDesk\system.conf"
+        "$env:ProgramData\AnyDesk\service.conf"
+        "$env:APPDATA\AnyDesk\system.conf"
+        "$env:APPDATA\AnyDesk\service.conf"
+    )) {
         try {
-            $out = & $exe --get-id 2>$null
-            if ($out) { $id = ("$out").Trim() }
+            if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
+            if ((Get-Item -LiteralPath $f).Length -gt 1MB) { continue }
+            foreach ($l in [IO.File]::ReadAllLines($f)) {
+                if ($l -match '^\s*ad\.anynet\.id\s*=\s*(\d{6,12})\s*$') { return $Matches[1] }
+            }
         } catch { }
     }
+    return $null
+}
+
+function Get-EmiAnyDeskInfo {
+    <#  «Instalado» = AnyDesk.exe en Program Files con firma valida de AnyDesk.
+        «Descargado» = hay un AnyDesk.exe en Descargas (no se ejecuta nunca:
+        cualquier programa del usuario puede dejar ahi un .exe o una DLL). #>
+    $exe = $null; $why = $null
+    foreach ($p in @("$env:ProgramFiles\AnyDesk\AnyDesk.exe", "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe")) {
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+        $t = Test-EmiTrustedExecutable -Path $p -Publisher $script:AnyDeskPublisher
+        if ($t.Ok) { $exe = $t.Path; break }
+        $why = $t.Reason
+        Write-EmiLog "AnyDesk en $p no se usa: $($t.Reason)." Warn
+    }
+    $running = [bool](Get-Process AnyDesk -ErrorAction SilentlyContinue)
 
     [pscustomobject]@{
-        Installed = [bool]$exe
-        Path      = $exe
-        Running   = $running
-        Id        = $id
-        Downloaded = (Test-Path -LiteralPath "$env:USERPROFILE\Downloads\AnyDesk.exe")
+        Installed  = [bool]$exe
+        Path       = $exe
+        Running    = $running
+        Id         = Get-EmiAnyDeskId
+        Downloaded = (Test-Path -LiteralPath (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\AnyDesk.exe'))
+        Rejected   = $why
     }
 }
 
@@ -175,7 +195,7 @@ function Get-EmiAnyDeskSteps {
 function Open-EmiAnyDeskDownload {
     <#  Abre la pagina oficial de descarga en el navegador del usuario. #>
     try {
-        Start-Process 'https://anydesk.com/es/downloads/windows'
+        Open-EmiUrl 'https://anydesk.com/es/downloads/windows'
         Write-EmiLog 'Se abrio la pagina oficial de descarga de AnyDesk.' Ok
         return $true
     }
@@ -187,9 +207,12 @@ function Open-EmiDownloadsFolder {
 }
 
 function Start-EmiAnyDesk {
+    <#  Abre el AnyDesk instalado (firmado, en Program Files) como el usuario,
+        sin privilegios de administrador. El de Descargas nunca se lanza. #>
     $a = Get-EmiAnyDeskInfo
     if (-not $a.Installed) { return $false }
-    try { Start-Process $a.Path; return $true } catch { return $false }
+    try { [void](Start-EmiUnelevated -FilePath $a.Path); return $true }
+    catch { Write-EmiLog "No se pudo abrir AnyDesk: $($_.Exception.Message)" Warn; return $false }
 }
 
 # ----------------------------- RESUMEN GENERAL -----------------------

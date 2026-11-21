@@ -15,7 +15,11 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 function Write-RuntimeError {
     param([string] $Message)
     try {
-        $logDir = Join-Path $Root 'Data'
+        # La carpeta de datos protegida de EmiCore (%ProgramData%\EmiToolkit); si
+        # el error llega antes de cargarla, %LOCALAPPDATA%, nunca la carpeta de la app.
+        $logDir = $null
+        if (Get-Command Get-EmiDataDir -ErrorAction SilentlyContinue) { $logDir = Get-EmiDataDir }
+        if (-not $logDir) { $logDir = Join-Path $env:LOCALAPPDATA 'EmiToolkit' }
         if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
         $logPath = Join-Path $logDir 'runtime-error.log'
         $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
@@ -44,6 +48,110 @@ if (-not $isAdmin -and -not $NoElevate) {
     }
 }
 
+# --------------------- Confianza en la carpeta -------------------------
+# Este proceso corre como administrador y carga codigo (modulos .psm1 y el
+# XAML) de su propia carpeta. Si un usuario sin privilegios puede escribir en
+# ella (C:\EmiToolkit copiado con robocopy, Descargas, Escritorio, OneDrive,
+# una carpeta compartida), puede meter codigo que se ejecutara como
+# administrador la proxima vez que alguien abra la herramienta.
+function Get-EmiFolderTrustIssues {
+    param([string] $Base)
+    $issues = New-Object System.Collections.ArrayList
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { return @() }
+    # SYSTEM, Administradores, CREATOR OWNER y TrustedInstaller
+    $trusted = @('S-1-5-18', 'S-1-5-32-544', 'S-1-3-0', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+    $mask = 0x2 -bor 0x4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000
+    $targets = @($Base, (Join-Path $Base 'Modules'), (Join-Path $Base 'UI'))
+    $targets += @(Get-ChildItem -LiteralPath $Base -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.ps1', '.cmd' } | ForEach-Object FullName)
+    $targets += @(Get-ChildItem -LiteralPath (Join-Path $Base 'Modules') -Filter '*.psm1' -File -Force -ErrorAction SilentlyContinue | ForEach-Object FullName)
+    $targets += @(Get-ChildItem -LiteralPath (Join-Path $Base 'UI') -Filter '*.xaml' -File -Force -ErrorAction SilentlyContinue | ForEach-Object FullName)
+    foreach ($t in $targets) {
+        try {
+            $acl = Get-Acl -LiteralPath $t -ErrorAction Stop
+            $who = New-Object System.Collections.ArrayList
+            $own = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+            if ($trusted -notcontains $own) { [void]$who.Add("propietario $own") }
+            foreach ($r in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+                if ($r.AccessControlType -ne 'Allow') { continue }
+                if (($r.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
+                if ($trusted -contains $r.IdentityReference.Value) { continue }
+                if (([int64]$r.FileSystemRights -band $mask) -ne 0) {
+                    $n = $r.IdentityReference.Value
+                    try { $n = $r.IdentityReference.Translate([Security.Principal.NTAccount]).Value } catch { }
+                    if (-not $who.Contains($n)) { [void]$who.Add($n) }
+                }
+            }
+            if ($who.Count -gt 0) { [void]$issues.Add(('{0}: {1}' -f $t, ($who -join ', '))) }
+        } catch { [void]$issues.Add("$t : no se pudo leer la ACL ($($_.Exception.Message))") }
+    }
+    return $issues.ToArray()
+}
+
+function Install-EmiProtectedCopy {
+    <#  Copia la herramienta a %ProgramFiles%\EmiToolkit (hereda la ACL de
+        Program Files: solo administradores escriben) y devuelve el .ps1 nuevo. #>
+    param([string] $From)
+    $dest = Join-Path $env:ProgramFiles 'EmiToolkit'
+    if (-not (Test-Path -LiteralPath $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
+    $bad = @(Get-EmiFolderTrustIssues $dest | Where-Object { $_ -like "${dest}:*" })
+    if ($bad.Count -gt 0) { throw "La carpeta $dest ya existe y no esta protegida: $($bad -join '; ')" }
+    foreach ($sub in @('Modules', 'UI')) {
+        $d = Join-Path $dest $sub
+        if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+    }
+    Get-ChildItem -LiteralPath $From -File | Where-Object { $_.Extension -in '.ps1', '.cmd', '.md', '.txt' } |
+        ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $dest -Force -ErrorAction Stop }
+    Get-ChildItem -LiteralPath (Join-Path $From 'Modules') -Filter '*.psm1' -File |
+        ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $dest 'Modules') -Force -ErrorAction Stop }
+    Get-ChildItem -LiteralPath (Join-Path $From 'UI') -Filter '*.xaml' -File |
+        ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $dest 'UI') -Force -ErrorAction Stop }
+    # Propietario Administradores en todo (segun la directiva, los archivos
+    # creados por un administrador pueden quedar a nombre de su cuenta)
+    $admins = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+    foreach ($i in @(Get-Item -LiteralPath $dest) + @(Get-ChildItem -LiteralPath $dest -Recurse -Force)) {
+        try { $a = Get-Acl -LiteralPath $i.FullName; $a.SetOwner($admins); Set-Acl -LiteralPath $i.FullName -AclObject $a } catch { }
+    }
+    $left = @(Get-EmiFolderTrustIssues $dest)
+    if ($left.Count -gt 0) { throw "La copia en $dest sigue siendo modificable por otros usuarios: $($left -join '; ')" }
+    return (Join-Path $dest 'EmiToolkit.ps1')
+}
+
+$script:TrustNote = $null
+if ($isAdmin) {
+    $trustIssues = @(Get-EmiFolderTrustIssues $Root)
+    if ($trustIssues.Count -gt 0) {
+        [void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
+        $shown = ($trustIssues | Select-Object -First 6) -join "`n"
+        if ($trustIssues.Count -gt 6) { $shown += "`n... y $($trustIssues.Count - 6) mas" }
+        $msg = 'AVISO DE SEGURIDAD' + "`n`n" +
+               'Another''s Toolbox se ejecuta como administrador, pero su carpeta la pueden modificar usuarios sin privilegios:' + "`n`n" +
+               $shown + "`n`n" +
+               'Cualquiera de esos usuarios (o un programa malicioso que corra con su cuenta) podria cambiar el codigo y conseguir permisos de administrador la proxima vez que se abra la herramienta.' + "`n`n" +
+               'Si = copiarla a ' + (Join-Path $env:ProgramFiles 'EmiToolkit') + ' (solo administradores pueden escribir ahi) y abrirla desde alli. Recomendado.' + "`n" +
+               'No = continuar de todas formas desde esta carpeta (queda anotado en el registro).' + "`n" +
+               'Cancelar = salir.' + "`n`n" +
+               'Si sospechas que alguien ya ha tocado estos archivos, descarga de nuevo la herramienta antes de copiarla.'
+        $ans = [System.Windows.Forms.MessageBox]::Show($msg, 'Another''s Toolbox - carpeta no protegida', 'YesNoCancel', 'Warning', 'Button1')
+        if ($ans -eq 'Yes') {
+            try {
+                $newPs1 = Install-EmiProtectedCopy $Root
+                Start-Process -FilePath 'powershell.exe' -WorkingDirectory (Split-Path $newPs1) -ArgumentList @(
+                    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-WindowStyle', 'Hidden', '-File', "`"$newPs1`""
+                )
+                exit
+            } catch {
+                [System.Windows.Forms.MessageBox]::Show('No se pudo copiar a Program Files: ' + $_.Exception.Message + "`n`nLa herramienta se cerrara.",
+                    'Another''s Toolbox', 'OK', 'Error') | Out-Null
+                exit 1
+            }
+        } elseif ($ans -eq 'No') {
+            $script:TrustNote = 'Se continuo desde una carpeta modificable por usuarios sin privilegios: ' + ($trustIssues -join ' | ')
+        } else {
+            exit
+        }
+    }
+}
+
 try {
 # --------------------------- Ensamblados ------------------------------
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Xaml, System.Windows.Forms
@@ -51,9 +159,19 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
 # ---------------------------- Modulos ---------------------------------
 $ModuleDir   = Join-Path $Root 'Modules'
 $ModuleNames = @('EmiCore', 'EmiDisk', 'EmiTweaks', 'EmiPrivacy', 'EmiPrivRecs', 'EmiVault', 'EmiDebloat', 'EmiApps', 'EmiFirewall', 'EmiStartup', 'EmiProcess', 'EmiVortex', 'EmiSystem')
-foreach ($m in $ModuleNames) { Import-Module (Join-Path $ModuleDir "$m.psm1") -Force -DisableNameChecking }
+# Cada modulo se lee de disco UNA vez, aqui, justo despues de comprobar la
+# carpeta. Las tareas en segundo plano importan este mismo texto en memoria
+# (Preamble) en vez de volver a leer los .psm1: asi nadie puede cambiar el
+# codigo a mitad de sesion.
+$script:ModuleCode = @{}
+foreach ($m in $ModuleNames) {
+    $code = [System.IO.File]::ReadAllText((Join-Path $ModuleDir "$m.psm1"))
+    $script:ModuleCode[$m] = $code
+    New-Module -Name $m -ScriptBlock ([scriptblock]::Create($code)) | Import-Module -Force -DisableNameChecking
+}
 
 Initialize-EmiCore -RootPath $Root
+if ($script:TrustNote) { Write-EmiLog $script:TrustNote Warn }
 Initialize-EmiVault
 Write-EmiLog ('Another''s Toolbox iniciado en ' + $env:COMPUTERNAME + ' por ' + $env:USERNAME + '.') Ok
 if (-not $isAdmin) { Write-EmiLog 'Sin permisos de administrador: muchas acciones estaran limitadas.' Warn }
@@ -123,9 +241,9 @@ $busyAmber = [Windows.Media.BrushConverter]::new().ConvertFrom('#FFE08C1E')
 $script:Preamble = @'
 $ErrorActionPreference = 'Continue'
 foreach ($m in $EmiModuleNames) {
-    Import-Module (Join-Path $EmiModuleDir "$m.psm1") -Force -DisableNameChecking
+    New-Module -Name $m -ScriptBlock ([scriptblock]::Create($EmiModuleCode[$m])) | Import-Module -Force -DisableNameChecking
 }
-Initialize-EmiCore -RootPath $EmiRootPath
+Initialize-EmiCore -RootPath $EmiRootPath -DataPath $EmiDataPath
 '@
 
 function Set-EmiBusy {
@@ -172,7 +290,8 @@ function Start-EmiWork {
         $rs.SessionStateProxy.SetVariable('EmiSync', $global:EmiSync)
         $rs.SessionStateProxy.SetVariable('P', $Parameters)
         $rs.SessionStateProxy.SetVariable('EmiRootPath', $Root)
-        $rs.SessionStateProxy.SetVariable('EmiModuleDir', $ModuleDir)
+        $rs.SessionStateProxy.SetVariable('EmiModuleCode', $script:ModuleCode)
+        $rs.SessionStateProxy.SetVariable('EmiDataPath', (Get-EmiDataDir))
         $rs.SessionStateProxy.SetVariable('EmiModuleNames', [string[]]$ModuleNames)
 
         $ps = [powershell]::Create()
@@ -829,7 +948,7 @@ function Update-EmiVaultUI {
 $ui.BtnHibpOpen.Add_Click({ Open-EmiHibpPage })
 $ui.BtnLastPassOpen.Add_Click({ Open-EmiLastPassPage })
 
-$ui.BtnPrivRecZenDownload.Add_Click({ Start-Process 'https://zen-browser.app/' })
+$ui.BtnPrivRecZenDownload.Add_Click({ Open-EmiUrl 'https://zen-browser.app/' })   # sin elevar: el navegador no hereda el token de administrador
 
 $ui.BtnPrivRecZenSet.Add_Click({
     Start-EmiWork -Label 'Configurando Zen...' -Work { return (Set-EmiZenDefault) } -OnDone {
@@ -852,6 +971,7 @@ $ui.BtnVaultUnlock.Add_Click({
 
 $ui.BtnVaultLock.Add_Click({
     Lock-EmiVault
+    Clear-EmiSecretClipboard
     Write-EmiLog 'Almacen de contrasenas bloqueado.' Info
     Update-EmiVaultUI
 })
@@ -862,46 +982,46 @@ $ui.BtnGenPassword.Add_Click({
     $ui.TxtGenPassword.Text = $pw
 })
 
-# El portapapeles puede estar abierto por otro proceso (AnyDesk, RDP, el
-# historial de Windows): SetText lanza CLIPBRD_E_CANT_OPEN. Se reintenta unas
-# veces y, si sigue ocupado, se avisa en el registro en vez de fallar.
-function Set-EmiClipboardText {
-    param([string] $Text, [int] $Attempts = 5)
-    for ($i = 1; $i -le $Attempts; $i++) {
-        try { [System.Windows.Clipboard]::SetText($Text); return $true }
-        catch {
-            if ($i -eq $Attempts) {
-                Write-EmiLog ('No se pudo usar el portapapeles (otro programa lo tiene abierto): ' + $_.Exception.Message) Warn
-                return $false
-            }
-            Start-Sleep -Milliseconds 80
-        }
-    }
-    return $false
-}
-
-# Copia un secreto al portapapeles y lo limpia a los 30 segundos
+# Copia un secreto al portapapeles y lo limpia a los 30 segundos. Lleva los
+# formatos que Windows respeta para no guardarlo en el historial (Win+V) ni
+# subirlo al portapapeles en la nube. Reintenta si otro programa (AnyDesk,
+# Escritorio remoto) tiene el portapapeles abierto; nunca cierra la app.
 function Copy-EmiSecret {
     param([string] $Text, [string] $Label)
-    [System.Windows.Clipboard]::SetText($Text)
+    $do = New-Object System.Windows.DataObject
+    $do.SetData([System.Windows.DataFormats]::UnicodeText, $Text)
+    $zero = [BitConverter]::GetBytes([int]0)
+    $do.SetData('ExcludeClipboardContentFromMonitorProcessing', (New-Object System.IO.MemoryStream(,$zero)))
+    $do.SetData('CanIncludeInClipboardHistory', (New-Object System.IO.MemoryStream(,$zero)))
+    $do.SetData('CanUploadToCloudClipboard', (New-Object System.IO.MemoryStream(,$zero)))
+    $ok = $false
+    for ($i = 0; $i -lt 5 -and -not $ok; $i++) {
+        try { [System.Windows.Clipboard]::SetDataObject($do, $true); $ok = $true }
+        catch { Start-Sleep -Milliseconds 80 }
+    }
+    if (-not $ok) { Write-EmiLog 'No se pudo copiar: otro programa tiene el portapapeles ocupado. Prueba de nuevo.' Warn; return }
     $script:ClipTimer.Tag = "$([DateTime]::UtcNow.Ticks):$Text"
     $script:ClipTimer.Stop(); $script:ClipTimer.Start()
     Write-EmiLog "$Label copiado. El portapapeles se limpiara en 30 segundos." Ok
 }
-# Timer que limpia el portapapeles si sigue conteniendo el secreto copiado
-$script:ClipTimer = New-Object System.Windows.Threading.DispatcherTimer
-$script:ClipTimer.Interval = [TimeSpan]::FromSeconds(30)
-$script:ClipTimer.Add_Tick({
+# Borra el portapapeles ya, si sigue conteniendo el ultimo secreto copiado
+function Clear-EmiSecretClipboard {
     try {
         $snapshot = [string]$script:ClipTimer.Tag
-        $secret   = $snapshot.Substring($snapshot.IndexOf(':') + 1)
+        if (-not $snapshot) { return }
+        $secret = $snapshot.Substring($snapshot.IndexOf(':') + 1)
         if ([System.Windows.Clipboard]::ContainsText() -and [System.Windows.Clipboard]::GetText() -eq $secret) {
             [System.Windows.Clipboard]::Clear()
             Write-EmiLog 'Portapapeles limpiado.' Info
         }
     } catch { }
+    $script:ClipTimer.Tag = $null
     $script:ClipTimer.Stop()
-})
+}
+# Timer que limpia el portapapeles si sigue conteniendo el secreto copiado
+$script:ClipTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:ClipTimer.Interval = [TimeSpan]::FromSeconds(30)
+$script:ClipTimer.Add_Tick({ Clear-EmiSecretClipboard })
 
 $ui.BtnGenCopy.Add_Click({
     if ($ui.TxtGenPassword.Text -and $ui.TxtGenPassword.Text -ne 'Pulsa Generar para crear una contrasena') {
@@ -929,7 +1049,7 @@ $ui.BtnVaultAdd.Add_Click({
         $ui.TxtVaultEmail.Text    = ''
         $ui.TxtVaultPassword.Text = ''
         Update-EmiVaultUI
-        Write-EmiLog ('Entrada ''' + $app + ''' guardada en el almacen.') Ok
+        Write-EmiLog 'Entrada guardada en el almacen.' Ok   # sin el nombre del servicio: el log no es secreto
     }
 })
 
@@ -938,7 +1058,7 @@ $ui.BtnVaultCopyPw.Add_Click({
     if (-not $sel) { return }
     $entry = Get-EmiVaultEntryPlain -Id $sel.Id
     if ($entry) {
-        Copy-EmiSecret $entry.Password ('Contrasena de ''' + $entry.AppName + '''')
+        Copy-EmiSecret $entry.Password 'Contrasena'
     }
 })
 
@@ -947,9 +1067,7 @@ $ui.BtnVaultCopyEmail.Add_Click({
     if (-not $sel) { return }
     $entry = Get-EmiVaultEntryPlain -Id $sel.Id
     if ($entry -and $entry.Email) {
-        if (Set-EmiClipboardText $entry.Email) {
-            Write-EmiLog ('Correo de ''' + $entry.AppName + ''' copiado.') Ok
-        }
+        Copy-EmiSecret $entry.Email 'Correo'
     }
 })
 
@@ -961,7 +1079,7 @@ $ui.BtnVaultDelete.Add_Click({
     if ($ans -ne 'Yes') { return }
     $removed = Remove-EmiVaultEntry -Id $sel.Id
     Update-EmiVaultUI
-    if ($removed) { Write-EmiLog ('Entrada ''' + $sel.AppName + ''' eliminada.') Ok }
+    if ($removed) { Write-EmiLog 'Entrada eliminada del almacen.' Ok }
 })
 
 # ======================================================================
@@ -1080,7 +1198,7 @@ $ui.BtnAppsClearCache.Add_Click({
 # ======================================================================
 
 $ui.BtnStoreOpenWeb.Add_Click({
-    Start-Process 'https://anotherstore.neocities.org/'
+    Open-EmiUrl 'https://anotherstore.neocities.org/'   # sin elevar
     Write-EmiLog 'Another Store: navegador abierto.' Ok
 })
 
@@ -1119,26 +1237,22 @@ $ui.BtnStoreUninstall.Add_Click({
     }
     $list = ($selected -join "`n - ")
     $uninstMsg = 'Se buscaran y desinstalaran ' + $selected.Count + ' apps de Another Suite:' + "`n`n" + ' - ' + $list + "`n`n" + 'Continuar?'
-    $ans = [System.Windows.MessageBox]::Show($uninstMsg, 'Confirmar desinstalacion', 'YesNo', 'Warning')
+    $ans = [System.Windows.MessageBox]::Show($uninstMsg, 'Confirmar desinstalacion', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
 
-    Start-EmiWork -Label 'Desinstalando apps de Another Store...' -Parameters @{ Names = $selected } -Work {
+    # Editores admitidos en ...\Uninstall para las apps de Another Suite (exactos)
+    $publishers = @('Another Suite', 'Anoth3rHellsing', 'Another')
+    Start-EmiWork -Label 'Desinstalando apps de Another Store...' -Parameters @{ Names = $selected; Publishers = $publishers } -Work {
         $ok = 0; $fail = 0
         foreach ($name in $P.Names) {
-            $found = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
-                                       'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
-                                       'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
-                     Where-Object { $_.DisplayName -like "*$name*" } | Select-Object -First 1
+            # DisplayName y Publisher exactos; las entradas de HKCU o de carpetas
+            # del usuario se desinstalan sin privilegios (Invoke-EmiSafeUninstall)
+            $found = @(Find-EmiUninstallEntry -DisplayName $name -Publisher $P.Publishers) | Select-Object -First 1
             if ($found -and ($found.QuietUninstallString -or $found.UninstallString)) {
                 try {
-                    $u = Get-EmiUninstallCommand -QuietUninstallString $found.QuietUninstallString -UninstallString $found.UninstallString
-                    if ($u.Arguments) {
-                        $proc = Start-Process -FilePath $u.FilePath -ArgumentList $u.Arguments -Wait -PassThru -ErrorAction Stop
-                    } else {
-                        $proc = Start-Process -FilePath $u.FilePath -Wait -PassThru -ErrorAction Stop
-                    }
+                    $code = Invoke-EmiSafeUninstall -Entry $found
                     # 3010/1641: MSI pide reiniciar, pero desinstalo bien
-                    if ($proc.ExitCode -notin @(0, 3010, 1641)) { throw ('el desinstalador devolvio el codigo ' + $proc.ExitCode) }
+                    if ($code -notin @(0, 3010, 1641)) { throw ('el desinstalador devolvio el codigo ' + $code) }
                     $ok++
                     Write-EmiLog ('Another Store: ' + $name + ' desinstalado.') Ok
                 } catch {
@@ -1410,7 +1524,7 @@ $ui.BtnUndoAll.Add_Click({
     }
 })
 
-$ui.BtnOpenLog.Add_Click({ Start-Process explorer.exe (Join-Path $Root 'Data') })
+$ui.BtnOpenLog.Add_Click({ Start-Process explorer.exe (Get-EmiDataDir) })
 
 # ======================================================================
 #                        VENTANA Y ARRANQUE
@@ -1456,7 +1570,9 @@ $win.Add_SourceInitialized({
 $win.Add_Loaded({
     $script:UiStarted = $true
     Update-EmiHome
-    Update-EmiAnyDesk
+    # AnyDesk ya no se ejecuta (solo se leen su configuracion y su firma), pero
+    # comprobar la firma puede tardar sin red: despues de pintar la ventana.
+    [void]$win.Dispatcher.BeginInvoke([Action]{ Update-EmiAnyDesk }, [System.Windows.Threading.DispatcherPriority]::ApplicationIdle)
     $ui.TbHeaderHint.Text = $env:COMPUTERNAME + ' - mantenimiento de Windows 11'
 })
 
@@ -1473,6 +1589,7 @@ $win.Add_Closing({
 
 $win.Add_Closed({
     try { $timer.Stop() } catch { }
+    Clear-EmiSecretClipboard   # una contrasena copiada no sobrevive a la app
     if ($script:Worker) { try { $script:Worker.Stop(); $script:Worker.Dispose() } catch { } }
     Write-EmiLog 'Another''s Toolbox cerrado.' Info
 })
@@ -1489,5 +1606,5 @@ $win.Add_Closed({
     $fullMsg = $errHead + "`n`n" + $errMsg + "`n`n" + 'Línea: ' + $errLine + "`n" + 'en ' + $errFile
     Write-RuntimeError -Message $fullMsg
     [void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
-    [System.Windows.Forms.MessageBox]::Show($fullMsg + "`n`nLog: " + (Join-Path $Root 'Data\runtime-error.log'), 'EmiToolkit Error', 'OK', 'Error') | Out-Null
+    [System.Windows.Forms.MessageBox]::Show($fullMsg + "`n`nLog: " + $(try { Join-Path (Get-EmiDataDir) 'runtime-error.log' } catch { Join-Path $env:LOCALAPPDATA 'EmiToolkit\runtime-error.log' }), 'EmiToolkit Error', 'OK', 'Error') | Out-Null
 }

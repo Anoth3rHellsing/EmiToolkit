@@ -73,21 +73,25 @@ function Get-EmiZenBrowserStatus {
     }
 }
 
+# Las paginas se abren sin privilegios (Open-EmiUrl, via explorer.exe): un
+# navegador abierto desde este proceso de administrador seria administrador.
 function Open-EmiHibpPage {
-    Start-Process 'https://haveibeenpwned.com/'
+    Open-EmiUrl 'https://haveibeenpwned.com/'
 }
 
 function Open-EmiLastPassPage {
-    Start-Process 'https://www.lastpass.com/es'
+    Open-EmiUrl 'https://www.lastpass.com/es'
 }
 
 function Open-EmiUblockInstall {
     $z = Get-EmiZenBrowserStatus
+    $url = 'https://addons.mozilla.org/firefox/addon/ublock-origin/'
     if ($z.Installed) {
-        Start-Process $z.Path 'https://addons.mozilla.org/firefox/addon/ublock-origin/'
-    } else {
-        Start-Process 'https://addons.mozilla.org/firefox/addon/ublock-origin/'
+        # zen.exe (normalmente en %LOCALAPPDATA%) nunca se lanza elevado
+        try { [void](Start-EmiUnelevated -FilePath $z.Path -Arguments $url); return }
+        catch { Write-EmiLog "No se pudo abrir Zen sin privilegios: $($_.Exception.Message)" Warn }
     }
+    Open-EmiUrl $url
 }
 
 Export-ModuleMember -Function *-Emi*

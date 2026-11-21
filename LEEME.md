@@ -101,8 +101,17 @@ cada tarea termina con un resumen de avisos y errores.
 
 Cada cambio del registro, servicio, tarea programada, entrada de arranque, regla
 de firewall, app quitada, característica de Windows, hibernación y variable de
-entorno se guarda en `Data\undo-journal.jsonl` (una línea por cambio) con su
-valor anterior. El `undo-journal.json` de versiones anteriores se sigue leyendo.
+entorno se guarda en `%ProgramData%\EmiToolkit\undo-journal.jsonl` (una línea
+por cambio) con su valor anterior y el nombre del equipo. Esa carpeta solo la
+pueden escribir los administradores y SYSTEM (la herramienta fija su ACL al
+arrancar). La primera vez se migra lo que hubiera en el antiguo `Data\` de la
+carpeta de la app: cada entrada se valida y el original queda como `*.migrado`.
+
+El deshacer se ejecuta como administrador, así que solo aplica lo que la
+herramienta escribe de verdad: claves de registro conocidas, sus servicios, el
+archivo `hosts` desde su copia protegida y sus propias reglas de firewall. Las
+entradas de otro equipo o fuera de esas listas se rechazan, se anotan en el
+registro y se apartan en `undo-journal.rechazadas.jsonl`.
 
 **Registro y deshacer → Revertir todos los cambios** lo devuelve todo a su estado
 original, en orden inverso. Lo que no se pueda revertir en ese momento se queda
@@ -116,18 +125,38 @@ Los archivos borrados desde el buscador van a la **papelera**, no se eliminan.
 
 ## Despliegue en varios equipos
 
-La carpeta es portable y no escribe nada fuera de sí misma salvo los cambios del
-sistema que aplica.
+La herramienta se ejecuta como **administrador** y carga su código (`Modules\`
+y `UI\`) de su propia carpeta. Esa carpeta tiene que ser **modificable solo por
+administradores**; si no, cualquier usuario del equipo podría cambiar un módulo
+y conseguir permisos de administrador la próxima vez que alguien la abra.
+
+Recomendado: instalarla en `%ProgramFiles%\EmiToolkit`, que ya tiene esa ACL.
 
 ```
-robocopy "\\servidor\compartido\EmiToolkit" "C:\EmiToolkit" /E
+robocopy "\\servidor\compartido\EmiToolkit" "%ProgramFiles%\EmiToolkit" /E /XD Data
 ```
 
-Luego se ejecuta `C:\EmiToolkit\EmiToolkit.cmd` en cada equipo.
+(en una consola de administrador). Luego se ejecuta
+`"%ProgramFiles%\EmiToolkit\EmiToolkit.cmd"` en cada equipo.
 
-Cada máquina genera su propio `Data\EmiToolkit_AAAAMMDD.log` y su propio
-`undo-journal.jsonl`, así que conviene **copiar la carpeta limpia** a cada equipo
-(sin la carpeta `Data` de otro) para que el "deshacer" corresponda a esa máquina.
+**No** la copies a `C:\EmiToolkit` sin más: una carpeta nueva en la raíz de
+`C:\` hereda permiso de modificación para *Usuarios autenticados*, y robocopy
+`/E` no copia ACL. Si aun así quieres usar esa ruta, protégela después:
+
+```
+icacls C:\EmiToolkit /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX
+```
+
+Al arrancar ya elevada, la herramienta comprueba la ACL de su carpeta, de
+`Modules\`, de `UI\` y de cada archivo. Si un usuario sin privilegios puede
+escribir en ellos, avisa y ofrece copiarse a `%ProgramFiles%\EmiToolkit` y
+abrirse desde allí, salir o continuar (queda anotado en el registro). Los
+módulos se leen una sola vez al arrancar; las tareas en segundo plano usan esa
+copia en memoria.
+
+Cada máquina guarda sus datos en `%ProgramData%\EmiToolkit` (logs
+`EmiToolkit_AAAAMMDD.log`, diario y copia de `hosts`), no en la carpeta de la app.
+La bóveda de contraseñas vive en `%LOCALAPPDATA%\EmiToolkit` de quien la usa.
 
 ### Sin interfaz
 
@@ -135,8 +164,8 @@ Los módulos de `Modules\` funcionan sueltos desde PowerShell, por si algún dí
 hace falta automatizar sin abrir la ventana:
 
 ```powershell
-Import-Module C:\EmiToolkit\Modules\EmiCore.psm1, C:\EmiToolkit\Modules\EmiFirewall.psm1
-Initialize-EmiCore -RootPath C:\EmiToolkit
+Import-Module "$env:ProgramFiles\EmiToolkit\Modules\EmiCore.psm1", "$env:ProgramFiles\EmiToolkit\Modules\EmiFirewall.psm1"
+Initialize-EmiCore -RootPath "$env:ProgramFiles\EmiToolkit"
 Invoke-EmiEsetFirewall -ResolveHostnames
 ```
 
@@ -163,7 +192,8 @@ EmiToolkit\
     EmiStartup.psm1       programas de arranque
     EmiProcess.psm1       procesos y RAM
     EmiSystem.psm1        Zen, inicio rápido, AnyDesk
-  Data\                   logs y diario de deshacer (se crea sola)
+  (datos)                 %ProgramData%\EmiToolkit: logs, diario, copia de hosts
+                          %LOCALAPPDATA%\EmiToolkit: bóveda de contraseñas
 ```
 
 ## Requisitos
