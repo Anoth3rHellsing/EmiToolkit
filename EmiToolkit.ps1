@@ -117,13 +117,16 @@ $busyAmber = [Windows.Media.BrushConverter]::new().ConvertFrom('#FFE08C1E')
 #                      MOTOR DE TAREAS EN SEGUNDO PLANO
 # ======================================================================
 
-$script:Preamble = @"
-`$ErrorActionPreference = 'Continue'
-foreach (`$m in @('$($ModuleNames -join "','")')) {
-    Import-Module (Join-Path '$ModuleDir' "`$m.psm1") -Force -DisableNameChecking
+# Las rutas llegan al runspace como variables (SessionStateProxy.SetVariable en
+# Start-EmiWork), no pegadas en el texto: una ruta con apostrofo, como
+# C:\Users\O'Brien, romperia el script.
+$script:Preamble = @'
+$ErrorActionPreference = 'Continue'
+foreach ($m in $EmiModuleNames) {
+    Import-Module (Join-Path $EmiModuleDir "$m.psm1") -Force -DisableNameChecking
 }
-Initialize-EmiCore -RootPath '$Root'
-"@
+Initialize-EmiCore -RootPath $EmiRootPath
+'@
 
 function Set-EmiBusy {
     param([bool] $Busy, [string] $Text = 'Listo')
@@ -164,6 +167,9 @@ function Start-EmiWork {
         $rs.Open()
         $rs.SessionStateProxy.SetVariable('EmiSync', $global:EmiSync)
         $rs.SessionStateProxy.SetVariable('P', $Parameters)
+        $rs.SessionStateProxy.SetVariable('EmiRootPath', $Root)
+        $rs.SessionStateProxy.SetVariable('EmiModuleDir', $ModuleDir)
+        $rs.SessionStateProxy.SetVariable('EmiModuleNames', [string[]]$ModuleNames)
 
         $ps = [powershell]::Create()
         $ps.Runspace = $rs
