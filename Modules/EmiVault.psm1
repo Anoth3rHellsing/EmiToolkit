@@ -260,7 +260,7 @@ function Get-EmiVaultEntries {
             Id             = $_.id
             AppName        = $_.appName
             Email          = $_.email
-            MaskedPassword = [char]0x2022 * 12
+            MaskedPassword = ([string][char]0x2022) * 12
             Notes          = $_.notes
             ModifiedText   = if ($_.modifiedUtc) { ([datetime]$_.modifiedUtc).ToString('yyyy-MM-dd HH:mm') } else { '' }
         }
