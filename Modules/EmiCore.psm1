@@ -792,6 +792,95 @@ function Clear-EmiJournal {
     }
 }
 
+# ------------------------------ Edicion ------------------------------
+# Muchas directivas solo surten efecto en algunas ediciones de Windows; en
+# las demas escribirlas es placebo. Cada uso cita su fuente.
+$script:EmiEdition = $null
+
+function ConvertTo-EmiEditionFamily {
+    <#  EditionID (HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion) a Home,
+        Pro, Enterprise, Education, SE, Server o Desconocida. Pro Education
+        cuenta como Pro: ninguna fuente confirma que admita lo de Education.
+        Enterprise multisesion (ServerRdsh), LTSC e IoT cuentan como Enterprise. #>
+    param([string] $EditionId)
+    switch -Regex ($EditionId) {
+        '^Core'                                   { return 'Home' }
+        '^CloudEdition'                           { return 'SE' }
+        '^Professional'                           { return 'Pro' }
+        '^Education'                              { return 'Education' }
+        '^(Enterprise|IoTEnterprise|ServerRdsh)'  { return 'Enterprise' }
+        '^Server'                                 { return 'Server' }
+    }
+    return 'Desconocida'
+}
+
+function Get-EmiWindowsEdition {
+    if (-not $script:EmiEdition) {
+        $id = $null
+        try { $id = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name 'EditionID' -ErrorAction Stop).EditionID } catch { }
+        $script:EmiEdition = [pscustomobject]@{ EditionId = [string]$id; Family = (ConvertTo-EmiEditionFamily ([string]$id)) }
+    }
+    return $script:EmiEdition
+}
+
+$script:EmiBuild = $null
+function Get-EmiWindowsBuild {
+    if ($null -eq $script:EmiBuild) {
+        $script:EmiBuild = 0
+        try { $script:EmiBuild = [int](Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name 'CurrentBuildNumber' -ErrorAction Stop).CurrentBuildNumber } catch { }
+    }
+    return $script:EmiBuild
+}
+
+function Test-EmiEditionApplies {
+    <#  Cierto si la edicion actual esta en $Editions (o si no se sabe cual
+        es). Con -What, si no aplica, lo deja en el log. #>
+    param([string[]] $Editions, [string] $What)
+    if (-not $Editions -or $Editions.Count -eq 0) { return $true }
+    $ed = Get-EmiWindowsEdition
+    if ($ed.Family -eq 'Desconocida' -or $Editions -contains $ed.Family) { return $true }
+    if ($What) { Write-EmiLog "$($What): sin efecto en tu edicion ($($ed.Family)); solo funciona en $($Editions -join ', '). No se cambia." Info }
+    return $false
+}
+
+function Get-EmiItemSkipReason {
+    <#  Por que un elemento del catalogo no hace nada en este equipo, o $null.
+        Editions: ediciones en las que funciona. MaxBuild: ultima compilacion
+        de Windows en la que existe (lo que Microsoft ya quito). #>
+    param([Parameter(Mandatory)] $Item)
+    $pe = $Item.PSObject.Properties['Editions']
+    if ($pe -and $pe.Value -and -not (Test-EmiEditionApplies -Editions @($pe.Value))) {
+        return "sin efecto en tu edicion: solo $(@($pe.Value) -join ', ')"
+    }
+    $pb = $Item.PSObject.Properties['MaxBuild']
+    if ($pb -and $pb.Value) {
+        $b = Get-EmiWindowsBuild
+        if ($b -gt [int]$pb.Value) { return "sin efecto en tu version de Windows (compilacion $b)" }
+    }
+    return $null
+}
+
+function Update-EmiCatalogForEdition {
+    <#  A lo que no hace nada en este equipo le anade el aviso al texto y lo
+        quita de lo recomendado. #>
+    param([object[]] $Items)
+    foreach ($it in $Items) {
+        $why = Get-EmiItemSkipReason -Item $it
+        if ($why) { $it.Info = [string]$it.Info + " [$why]"; $it.Recommended = $false }
+    }
+    return $Items
+}
+
+function Test-EmiItemApplies {
+    <#  Antes de aplicar un elemento: si no hace nada aqui, lo dice en el log
+        y devuelve $false (no se escribe nada a lo tonto). #>
+    param([Parameter(Mandatory)] $Item)
+    $why = Get-EmiItemSkipReason -Item $Item
+    if (-not $why) { return $true }
+    Write-EmiLog "$($Item.Name): $why. No se cambia nada." Info
+    return $false
+}
+
 # ---------------------------- Hibernacion ----------------------------
 
 function Disable-EmiHibernation {

@@ -4,8 +4,9 @@
 # =====================================================================
 
 function Get-EmiPrivacyItems {
-    @(
-        [pscustomobject]@{ Id='Telemetry';  Name='Telemetria de diagnostico al minimo';      Info='AllowTelemetry = 0 (Seguridad) por directiva';          Recommended=$true }
+    <#  Editions / MaxBuild: donde surte efecto (EmiCore, Get-EmiItemSkipReason). #>
+    Update-EmiCatalogForEdition @(
+        [pscustomobject]@{ Id='Telemetry';  Name='Telemetria de diagnostico al minimo';      Info='El minimo que admite tu edicion: Seguridad (0) en Enterprise y Education; Obligatorio (1) en Home y Pro'; Recommended=$true }
         [pscustomobject]@{ Id='DiagTrack';  Name='Detener el servicio DiagTrack';            Info='Experiencias del usuario conectado y telemetria';       Recommended=$true }
         [pscustomobject]@{ Id='AdvertId';   Name='Quitar el ID de publicidad';               Info='Las apps dejan de perfilar al usuario';                 Recommended=$true }
         [pscustomobject]@{ Id='Tailored';   Name='Quitar experiencias personalizadas';       Info='Sin anuncios adaptados a tus datos de diagnostico';     Recommended=$true }
@@ -26,7 +27,9 @@ function Get-EmiPrivacyItems {
         [pscustomobject]@{ Id='HostsBlock'; Name='Bloquear dominios de telemetria (hosts)';  Info='AVISO: Defender lo marca como HostsFileHijack y al quitarlo restablece el hosts entero'; Recommended=$false }
         # --- Telemetria moderna (Copilot, Recall, AI, Edge, WebView2, winget) ---
         [pscustomobject]@{ Id='DisableCopilot';    Name='Desactivar Windows Copilot';              Info='GPO TurnOffWindowsCopilot; la app queda instalada pero inactiva'; Recommended=$true }
-        [pscustomobject]@{ Id='DisableRecall';     Name='Desactivar Recall y Snapshots';           Info='Impide captura e indexacion local por IA; sin efecto en PC sin NPU'; Recommended=$true }
+        # Policy CSP WindowsAI (AllowRecallEnablement, DisableAIDataAnalysis):
+        # Pro, Enterprise y Education; en Home, Recall se quita como caracteristica
+        [pscustomobject]@{ Id='DisableRecall';     Name='Desactivar Recall y Snapshots';           Info='Impide captura e indexacion local por IA; sin efecto en PC sin NPU'; Recommended=$true; Editions=@('Pro','Enterprise','Education') }
         [pscustomobject]@{ Id='LimitAIDiagnostics';Name='Limitar diagnosticos de IA';              Info='Suplementario a Telemetria; restringe logs y dumps de diagnostico'; Recommended=$true }
         [pscustomobject]@{ Id='DisableEdgeShopping';Name='Desactivar Shopping en Edge';            Info='Quita el asistente de compras y cupones de Edge';                   Recommended=$true }
         [pscustomobject]@{ Id='DisableEdgeSidebar';Name='Desactivar Sidebar y Copilot en Edge';    Info='OJO: la barra lateral y el icono Copilot dejan de estar disponibles';Recommended=$false }
@@ -83,16 +86,24 @@ function Invoke-EmiPrivacyItem {
 
     $n = 0
     $M = 'Privacidad'
+    $def = @(Get-EmiPrivacyItems | Where-Object { $_.Id -eq $Id }) | Select-Object -First 1
+    if ($def -and -not (Test-EmiItemApplies -Item $def)) { return 0 }
 
     switch ($Id) {
 
         'Telemetry' {
-            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' 0 DWord $M) { $n++ }
-            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'MaxTelemetryAllowed' 0 DWord $M) { $n++ }
+            # AllowTelemetry=0 (Seguridad) solo existe en Enterprise, Education,
+            # IoT y Server; en Home y Pro Windows lo trata como 1 (Policy CSP
+            # System, AllowTelemetry; CIS Microsoft Intune for Windows 11).
+            # Ahi se escribe 1, que es lo que de verdad se aplica.
+            $lvl = if (Test-EmiEditionApplies -Editions @('Enterprise','Education','Server')) { 0 } else { 1 }
+            if ($lvl -eq 1) { Write-EmiLog "Telemetria: tu edicion ($((Get-EmiWindowsEdition).Family)) no admite el nivel Seguridad (0); se pone el minimo que admite, Obligatorio (1)." Info }
+            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' $lvl DWord $M) { $n++ }
+            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'MaxTelemetryAllowed' $lvl DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'DoNotShowFeedbackNotifications' 1 DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'LimitDiagnosticLogCollection' 1 DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'LimitDumpCollection' 1 DWord $M) { $n++ }
-            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection' 'AllowTelemetry' 0 DWord $M) { $n++ }
+            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection' 'AllowTelemetry' $lvl DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowDeviceNameInTelemetry' 0 DWord $M) { $n++ }
         }
 
@@ -332,7 +343,9 @@ function Get-EmiPrivacyStatus {
         TelemetryLevel = if ($null -eq $tel) { 'sin directiva' } else { "$tel" }
         DiagTrack      = if ($dt) { $dt.Status.ToString() } else { 'ausente' }
         AdvertisingId  = if ($adv -eq 0) { 'desactivado' } else { 'activo' }
-        Clean          = ($tel -eq 0 -and (-not $dt -or $dt.Status -ne 'Running') -and $adv -eq 0)
+        # En Home y Pro el minimo es 1 (ver 'Telemetry')
+        Clean          = (($tel -eq 0 -or ($tel -eq 1 -and -not (Test-EmiEditionApplies -Editions @('Enterprise','Education','Server')))) -and
+                          (-not $dt -or $dt.Status -ne 'Running') -and $adv -eq 0)
     }
 }
 

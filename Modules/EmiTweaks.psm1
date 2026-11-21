@@ -10,8 +10,10 @@ $HKLM_POL_WS  = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search'
 $HKLM_POL_EXP = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'
 
 function Get-EmiTweaks {
-    <#  Catalogo de optimizaciones. Recommended = se aplica en modo basico. #>
-    @(
+    <#  Catalogo de optimizaciones. Recommended = se aplica en modo basico.
+        Editions / MaxBuild: donde surte efecto (EmiCore, Get-EmiItemSkipReason);
+        fuera de ahi se avisa en el texto y no se recomienda. #>
+    Update-EmiCatalogForEdition @(
         [pscustomobject]@{ Id='Widgets';    Name='Quitar Widgets de la barra de tareas';       Info='Libera RAM del proceso Widgets.exe';                 Recommended=$true }
         [pscustomobject]@{ Id='Copilot';    Name='Quitar el boton de Copilot';                 Info='Desactiva Copilot en la barra de tareas';            Recommended=$true }
         [pscustomobject]@{ Id='Chat';       Name='Quitar el icono de Chat / Teams';            Info='Quita el chat integrado de Windows';                 Recommended=$true }
@@ -52,7 +54,9 @@ function Get-EmiTweaks {
         [pscustomobject]@{ Id='DisableStorageSense';Name='Desactivar Storage Sense automatico';    Info='Impide limpieza automatica de archivos temporales';       Recommended=$false }
         [pscustomobject]@{ Id='DisableBitLockerAuto';Name='Desactivar cifrado automatico BitLocker';Info='Evita cifrado silencioso en dispositivos compatibles';   Recommended=$false }
         [pscustomobject]@{ Id='DisableDragTray';    Name='Desactivar bandeja de arrastre';         Info='Quita el area de compartir archivos al arrastrar';        Recommended=$true }
-        [pscustomobject]@{ Id='DelayUpdates';       Name='Retrasar actualizaciones de calidad 7d'; Info='AVISO: las de calidad SON los parches de seguridad mensuales: llegan 7 dias tarde. Solo Pro, Enterprise y Education'; Recommended=$false }
+        # Directiva de Windows Update para empresas: Home la ignora (Policy CSP Update,
+        # DeferQualityUpdatesPeriodInDays; "Configure Windows Update client policies")
+        [pscustomobject]@{ Id='DelayUpdates';       Name='Retrasar actualizaciones de calidad 7d'; Info='AVISO: las de calidad SON los parches de seguridad mensuales: llegan 7 dias tarde'; Recommended=$false; Editions=@('Pro','Enterprise','Education') }
         [pscustomobject]@{ Id='NoAutoRestart';      Name='No reiniciar con usuario activo';        Info='Windows no fuerza reinicio tras update si hay sesion';    Recommended=$true }
         [pscustomobject]@{ Id='DevCliTelemetry';    Name='Desactivar telemetria de CLI dev';       Info='Azure CLI, .NET, Bicep, PowerShell, NuGet; requiere nuevo shell';Recommended=$true }
         [pscustomobject]@{ Id='DisableModernStandbyNet';Name='Red desactivada en Modern Standby';  Info='AVISO: impide notificaciones push en suspension';         Recommended=$false }
@@ -173,6 +177,8 @@ function Invoke-EmiTweak {
 
     $n = 0
     $M = 'Optimizacion'
+    $def = @(Get-EmiTweaks | Where-Object { $_.Id -eq $Id }) | Select-Object -First 1
+    if ($def -and -not (Test-EmiItemApplies -Item $def)) { return 0 }
 
     switch ($Id) {
 
@@ -211,14 +217,26 @@ function Invoke-EmiTweak {
             )
             foreach ($v in $vals) { if (Set-EmiRegistry $HKCU_CDM $v 0 DWord $M) { $n++ } }
             if (Set-EmiRegistry 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\UserProfileEngagement' 'ScoobeSystemSettingEnabled' 0 DWord $M) { $n++ }
-            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsConsumerFeatures' 1 DWord $M) { $n++ }
-            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableSoftLanding' 1 DWord $M) { $n++ }
+            # "Turn off Microsoft consumer experiences" y "Do not show Windows tips"
+            # solo valen en Enterprise y Education (Policy CSP Experience,
+            # AllowWindowsConsumerFeatures / AllowWindowsTips); en Home y Pro las
+            # apps sugeridas se quitan con los valores de ContentDeliveryManager.
+            if (Test-EmiEditionApplies -Editions @('Enterprise','Education') -What 'Directivas de experiencias del consumidor y consejos') {
+                if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsConsumerFeatures' 1 DWord $M) { $n++ }
+                if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableSoftLanding' 1 DWord $M) { $n++ }
+            }
         }
 
         'StartRec' {
             if (Set-EmiRegistry $HKCU_ADV 'Start_TrackDocs' 0 DWord $M) { $n++ }
             if (Set-EmiRegistry $HKCU_ADV 'Start_TrackProgs' 0 DWord $M) { $n++ }
-            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'HideRecommendedSection' 1 DWord $M) { $n++ }
+            # HideRecommendedSection solo vale en Windows 11 SE y Education (Policy
+            # CSP Start; Winaero, "Windows 11 now has the option to remove
+            # Recommended from Start, but you can't use it"). En Enterprise no
+            # esta confirmado, asi que no se escribe.
+            if (Test-EmiEditionApplies -Editions @('SE','Education') -What 'Ocultar la seccion Recomendado por directiva') {
+                if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'HideRecommendedSection' 1 DWord $M) { $n++ }
+            }
         }
 
         'GameDVR' {
@@ -425,15 +443,11 @@ function Invoke-EmiTweak {
             # Sin DeferQualityUpdates=1 el periodo no se aplica; y es una directiva
             # de Windows Update para empresas: en Home no hace nada (Configure
             # Windows Update client policies; Policy CSP Update).
+            # La edicion la filtra Editions del catalogo (Test-EmiItemApplies)
             $wu = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
-            $ed = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction SilentlyContinue).EditionID
-            if ("$ed" -like 'Core*') {
-                Write-EmiLog "Retrasar actualizaciones: tu edicion ($ed, Home) no aplica esta directiva. No se cambia nada." Warn
-            } else {
-                if (Set-EmiRegistry -Path $wu -Name 'DeferQualityUpdates' -Value 1 -Type DWord -Module $M) { $n++ }
-                if (Set-EmiRegistry -Path $wu -Name 'DeferQualityUpdatesPeriodInDays' -Value 7 -Type DWord -Module $M) { $n++ }
-                Write-EmiLog 'Los parches de seguridad mensuales tambien llegaran 7 dias tarde.' Warn
-            }
+            if (Set-EmiRegistry -Path $wu -Name 'DeferQualityUpdates' -Value 1 -Type DWord -Module $M) { $n++ }
+            if (Set-EmiRegistry -Path $wu -Name 'DeferQualityUpdatesPeriodInDays' -Value 7 -Type DWord -Module $M) { $n++ }
+            Write-EmiLog 'Los parches de seguridad mensuales tambien llegaran 7 dias tarde.' Warn
         }
         'NoAutoRestart' {
             if (Set-EmiRegistry -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -Name 'NoAutoRebootWithLoggedOnUsers' -Value 1 -Type DWord -Module $M) { $n++ }
