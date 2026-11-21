@@ -772,6 +772,7 @@ $ui.BtnVaultUnlock.Add_Click({
 
 $ui.BtnVaultLock.Add_Click({
     Lock-EmiVault
+    Clear-EmiSecretClipboard
     Write-EmiLog 'Almacen de contrasenas bloqueado.' Info
     Update-EmiVaultUI
 })
@@ -782,28 +783,46 @@ $ui.BtnGenPassword.Add_Click({
     $ui.TxtGenPassword.Text = $pw
 })
 
-# Copia un secreto al portapapeles y lo limpia a los 30 segundos
+# Copia un secreto al portapapeles y lo limpia a los 30 segundos. Lleva los
+# formatos que Windows respeta para no guardarlo en el historial (Win+V) ni
+# subirlo al portapapeles en la nube. Reintenta si otro programa (AnyDesk,
+# Escritorio remoto) tiene el portapapeles abierto; nunca cierra la app.
 function Copy-EmiSecret {
     param([string] $Text, [string] $Label)
-    [System.Windows.Clipboard]::SetText($Text)
+    $do = New-Object System.Windows.DataObject
+    $do.SetData([System.Windows.DataFormats]::UnicodeText, $Text)
+    $zero = [BitConverter]::GetBytes([int]0)
+    $do.SetData('ExcludeClipboardContentFromMonitorProcessing', (New-Object System.IO.MemoryStream(,$zero)))
+    $do.SetData('CanIncludeInClipboardHistory', (New-Object System.IO.MemoryStream(,$zero)))
+    $do.SetData('CanUploadToCloudClipboard', (New-Object System.IO.MemoryStream(,$zero)))
+    $ok = $false
+    for ($i = 0; $i -lt 5 -and -not $ok; $i++) {
+        try { [System.Windows.Clipboard]::SetDataObject($do, $true); $ok = $true }
+        catch { Start-Sleep -Milliseconds 80 }
+    }
+    if (-not $ok) { Write-EmiLog 'No se pudo copiar: otro programa tiene el portapapeles ocupado. Prueba de nuevo.' Warn; return }
     $script:ClipTimer.Tag = "$([DateTime]::UtcNow.Ticks):$Text"
     $script:ClipTimer.Stop(); $script:ClipTimer.Start()
     Write-EmiLog "$Label copiado. El portapapeles se limpiara en 30 segundos." Ok
 }
-# Timer que limpia el portapapeles si sigue conteniendo el secreto copiado
-$script:ClipTimer = New-Object System.Windows.Threading.DispatcherTimer
-$script:ClipTimer.Interval = [TimeSpan]::FromSeconds(30)
-$script:ClipTimer.Add_Tick({
+# Borra el portapapeles ya, si sigue conteniendo el ultimo secreto copiado
+function Clear-EmiSecretClipboard {
     try {
         $snapshot = [string]$script:ClipTimer.Tag
-        $secret   = $snapshot.Substring($snapshot.IndexOf(':') + 1)
+        if (-not $snapshot) { return }
+        $secret = $snapshot.Substring($snapshot.IndexOf(':') + 1)
         if ([System.Windows.Clipboard]::ContainsText() -and [System.Windows.Clipboard]::GetText() -eq $secret) {
             [System.Windows.Clipboard]::Clear()
             Write-EmiLog 'Portapapeles limpiado.' Info
         }
     } catch { }
+    $script:ClipTimer.Tag = $null
     $script:ClipTimer.Stop()
-})
+}
+# Timer que limpia el portapapeles si sigue conteniendo el secreto copiado
+$script:ClipTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:ClipTimer.Interval = [TimeSpan]::FromSeconds(30)
+$script:ClipTimer.Add_Tick({ Clear-EmiSecretClipboard })
 
 $ui.BtnGenCopy.Add_Click({
     if ($ui.TxtGenPassword.Text -and $ui.TxtGenPassword.Text -ne 'Pulsa Generar para crear una contrasena') {
@@ -831,7 +850,7 @@ $ui.BtnVaultAdd.Add_Click({
         $ui.TxtVaultEmail.Text    = ''
         $ui.TxtVaultPassword.Text = ''
         Update-EmiVaultUI
-        Write-EmiLog ('Entrada ''' + $app + ''' guardada en el almacen.') Ok
+        Write-EmiLog 'Entrada guardada en el almacen.' Ok   # sin el nombre del servicio: el log no es secreto
     }
 })
 
@@ -840,7 +859,7 @@ $ui.BtnVaultCopyPw.Add_Click({
     if (-not $sel) { return }
     $entry = Get-EmiVaultEntryPlain -Id $sel.Id
     if ($entry) {
-        Copy-EmiSecret $entry.Password ('Contrasena de ''' + $entry.AppName + '''')
+        Copy-EmiSecret $entry.Password 'Contrasena'
     }
 })
 
@@ -849,8 +868,7 @@ $ui.BtnVaultCopyEmail.Add_Click({
     if (-not $sel) { return }
     $entry = Get-EmiVaultEntryPlain -Id $sel.Id
     if ($entry -and $entry.Email) {
-        [System.Windows.Clipboard]::SetText($entry.Email)
-        Write-EmiLog ('Correo de ''' + $entry.AppName + ''' copiado.') Ok
+        Copy-EmiSecret $entry.Email 'Correo'
     }
 })
 
@@ -862,7 +880,7 @@ $ui.BtnVaultDelete.Add_Click({
     if ($ans -ne 'Yes') { return }
     $removed = Remove-EmiVaultEntry -Id $sel.Id
     Update-EmiVaultUI
-    if ($removed) { Write-EmiLog ('Entrada ''' + $sel.AppName + ''' eliminada.') Ok }
+    if ($removed) { Write-EmiLog 'Entrada eliminada del almacen.' Ok }
 })
 
 # ======================================================================
@@ -1314,6 +1332,7 @@ $win.Add_Loaded({
 
 $win.Add_Closed({
     try { $timer.Stop() } catch { }
+    Clear-EmiSecretClipboard   # una contrasena copiada no sobrevive a la app
     if ($script:Worker) { try { $script:Worker.Stop(); $script:Worker.Dispose() } catch { } }
     Write-EmiLog 'Another''s Toolbox cerrado.' Info
 })
