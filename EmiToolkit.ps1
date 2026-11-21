@@ -10,6 +10,9 @@ param([switch] $NoElevate)
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+# Cuanto tarda en abrirse: se anota una vez en el historial al pintar la ventana
+$script:StartClock = [Diagnostics.Stopwatch]::StartNew()
+$script:StartMarks = New-Object System.Collections.ArrayList
 
 # --------------------------- Error Handler Global ---------------------
 function Write-RuntimeError {
@@ -58,33 +61,40 @@ function Get-EmiFolderTrustIssues {
     param([string] $Base)
     $issues = New-Object System.Collections.ArrayList
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { return @() }
-    # SYSTEM, Administradores, CREATOR OWNER y TrustedInstaller
-    $trusted = @('S-1-5-18', 'S-1-5-32-544', 'S-1-3-0', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
-    $mask = 0x2 -bor 0x4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000
     $targets = @($Base, (Join-Path $Base 'Modules'), (Join-Path $Base 'UI'))
     $targets += @(Get-ChildItem -LiteralPath $Base -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.ps1', '.cmd' } | ForEach-Object FullName)
     $targets += @(Get-ChildItem -LiteralPath (Join-Path $Base 'Modules') -Filter '*.psm1' -File -Force -ErrorAction SilentlyContinue | ForEach-Object FullName)
     $targets += @(Get-ChildItem -LiteralPath (Join-Path $Base 'UI') -Filter '*.xaml' -File -Force -ErrorAction SilentlyContinue | ForEach-Object FullName)
     foreach ($t in $targets) {
         try {
-            $acl = Get-Acl -LiteralPath $t -ErrorAction Stop
-            $who = New-Object System.Collections.ArrayList
-            $own = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
-            if ($trusted -notcontains $own) { [void]$who.Add("propietario $own") }
-            foreach ($r in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
-                if ($r.AccessControlType -ne 'Allow') { continue }
-                if (($r.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
-                if ($trusted -contains $r.IdentityReference.Value) { continue }
-                if (([int64]$r.FileSystemRights -band $mask) -ne 0) {
-                    $n = $r.IdentityReference.Value
-                    try { $n = $r.IdentityReference.Translate([Security.Principal.NTAccount]).Value } catch { }
-                    if (-not $who.Contains($n)) { [void]$who.Add($n) }
-                }
-            }
+            $who = @(Get-EmiPathWriters $t)
             if ($who.Count -gt 0) { [void]$issues.Add(('{0}: {1}' -f $t, ($who -join ', '))) }
         } catch { [void]$issues.Add("$t : no se pudo leer la ACL ($($_.Exception.Message))") }
     }
     return $issues.ToArray()
+}
+
+function Get-EmiPathWriters {
+    <#  Quien, aparte de SYSTEM, Administradores, CREATOR OWNER y TrustedInstaller,
+        puede modificar $Path (o es su propietario). Lanza si no se lee la ACL. #>
+    param([string] $Path)
+    $trusted = @('S-1-5-18', 'S-1-5-32-544', 'S-1-3-0', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+    $mask = 0x2 -bor 0x4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000
+    $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $who = New-Object System.Collections.ArrayList
+    $own = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($trusted -notcontains $own) { [void]$who.Add("propietario $own") }
+    foreach ($r in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+        if ($r.AccessControlType -ne 'Allow') { continue }
+        if (($r.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
+        if ($trusted -contains $r.IdentityReference.Value) { continue }
+        if (([int64]$r.FileSystemRights -band $mask) -ne 0) {
+            $n = $r.IdentityReference.Value
+            try { $n = $r.IdentityReference.Translate([Security.Principal.NTAccount]).Value } catch { }
+            if (-not $who.Contains($n)) { [void]$who.Add($n) }
+        }
+    }
+    return $who.ToArray()
 }
 
 function Install-EmiProtectedCopy {
@@ -165,10 +175,117 @@ $ModuleNames = @('EmiCore', 'EmiDisk', 'EmiTweaks', 'EmiPrivacy', 'EmiPrivRecs',
 # codigo a mitad de sesion.
 $script:ModuleCode = @{}
 foreach ($m in $ModuleNames) {
-    $code = [System.IO.File]::ReadAllText((Join-Path $ModuleDir "$m.psm1"))
-    $script:ModuleCode[$m] = $code
-    New-Module -Name $m -ScriptBlock ([scriptblock]::Create($code)) | Import-Module -Force -DisableNameChecking
+    $script:ModuleCode[$m] = [System.IO.File]::ReadAllText((Join-Path $ModuleDir "$m.psm1"))
 }
+[void]$script:StartMarks.Add('lectura ' + $script:StartClock.ElapsedMilliseconds + ' ms')
+
+# Tipos C# precompilados. Compilar con Add-Type lanza csc.exe y cuesta cerca
+# de un segundo cada vez; ahora hay un solo bloque por modulo y se guarda
+# compilado en %ProgramData%\EmiToolkit\cache (ACL solo de administradores),
+# con el hash del codigo fuente en el nombre. Solo se carga una DLL de ahi si
+# la carpeta y el archivo siguen siendo solo de administradores y el hash
+# coincide con el fuente que se acaba de leer; si no, se compila en memoria
+# como antes y la cache se rehace en segundo plano.
+$script:TypeSpecs = @(
+    @{ Module = 'EmiCore';  Var = 'EmiTypeSource';     Probe = @('EmiItem', 'EmiNative'); Refs = @() }
+    @{ Module = 'EmiVault'; Var = 'HelloBridgeSource'; Probe = @('EmiHelloBridge');       Refs = @('System.Runtime.WindowsRuntime', 'System.Core', 'WindowsBase') }
+)
+
+function Get-EmiScriptStringVar {
+    <#  Texto de una asignacion de primer nivel  $script:Nombre = @'...'@  de un modulo, leido con el AST (sin ejecutar nada). #>
+    param([string] $Code, [string] $Name)
+    $tok = $null; $err = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput($Code, [ref]$tok, [ref]$err)
+    foreach ($st in $ast.EndBlock.Statements) {
+        if ($st -isnot [System.Management.Automation.Language.AssignmentStatementAst]) { continue }
+        if ($st.Left -isnot [System.Management.Automation.Language.VariableExpressionAst]) { continue }
+        if ($st.Left.VariablePath.UserPath -ne ('script:' + $Name)) { continue }
+        $ex = $st.Right.Expression
+        if ($ex -is [System.Management.Automation.Language.StringConstantExpressionAst]) { return $ex.Value }
+    }
+    return $null
+}
+
+function Get-EmiTypeCacheName {
+    <#  Nombre del archivo en la cache: modulo + SHA-256 del fuente, las
+        referencias y la version de .NET y PowerShell (otro fuente, otro archivo). #>
+    param([string] $Module, [string] $Source, [string[]] $Refs)
+    $key = $Source + '|' + ($Refs -join ',') + '|' + [Environment]::Version + '|' + $PSVersionTable.PSVersion
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { $h = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($key)) } finally { $sha.Dispose() }
+    return ('{0}-{1}.dll' -f $Module, (-join ($h[0..11] | ForEach-Object { $_.ToString('x2') })))
+}
+
+function Test-EmiCacheTrusted {
+    <#  $true si cada ruta existe, no es un enlace y solo la pueden modificar administradores. #>
+    param([string[]] $Paths)
+    foreach ($p in $Paths) {
+        $it = Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+        if (-not $it) { return $false }
+        if ($it.Attributes -band [IO.FileAttributes]::ReparsePoint) { return $false }
+        try { if (@(Get-EmiPathWriters $p).Count -gt 0) { return $false } } catch { return $false }
+    }
+    return $true
+}
+
+$script:TypeCacheDir = $null
+$script:TypeCacheMissing = New-Object System.Collections.ArrayList
+$script:TypeCacheNote = 'sin cache'
+if ($isAdmin -and [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT -and $env:ProgramData) {
+    $script:TypeCacheDir = Join-Path (Join-Path $env:ProgramData 'EmiToolkit') 'cache'
+    $hits = 0
+    foreach ($spec in $script:TypeSpecs) {
+        $src = Get-EmiScriptStringVar $script:ModuleCode[$spec.Module] $spec.Var
+        if (-not $src) { continue }
+        $file = Join-Path $script:TypeCacheDir (Get-EmiTypeCacheName $spec.Module $src $spec.Refs)
+        $loaded = $false
+        if (Test-EmiCacheTrusted @((Split-Path $script:TypeCacheDir), $script:TypeCacheDir, $file)) {
+            try {
+                Add-Type -LiteralPath $file -ErrorAction Stop
+                $loaded = (@($spec.Probe | Where-Object { -not ($_ -as [type]) }).Count -eq 0)
+            } catch { $loaded = $false }
+        }
+        if ($loaded) { $hits++ }
+        else { [void]$script:TypeCacheMissing.Add(@{ Module = $spec.Module; Source = $src; Refs = $spec.Refs; File = $file }) }
+    }
+    $script:TypeCacheNote = 'cache de tipos: ' + $hits + ' de ' + $script:TypeSpecs.Count
+}
+
+function Start-EmiTypeCacheBuild {
+    <#  Compila en otro proceso (sin esperar) las DLL que faltan en la cache. En
+        otro proceso porque Add-Type -OutputAssembly en este cargaria una
+        segunda copia de los mismos tipos. El hijo hereda el token de
+        administrador y escribe primero a un temporal en la misma carpeta. #>
+    if (-not $script:TypeCacheDir -or $script:TypeCacheMissing.Count -eq 0) { return }
+    if ((Get-EmiDataDir) -ne (Split-Path $script:TypeCacheDir)) { return }   # la carpeta de datos no es la protegida
+    try {
+        if (-not (Test-Path -LiteralPath $script:TypeCacheDir)) { New-Item -ItemType Directory -Path $script:TypeCacheDir -Force | Out-Null }
+        if (-not (Test-EmiCacheTrusted @((Split-Path $script:TypeCacheDir), $script:TypeCacheDir))) {
+            Write-EmiLog 'La cache de tipos no esta protegida: no se usa.' Warn; return
+        }
+        $q = { param($t) "'" + ([string]$t).Replace("'", "''") + "'" }
+        $sb = New-Object System.Text.StringBuilder
+        [void]$sb.AppendLine('$ErrorActionPreference = ''Stop''')
+        foreach ($j in $script:TypeCacheMissing) {
+            $b64  = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($j.Source))
+            $refs = '@(' + ((@($j.Refs) | ForEach-Object { & $q $_ }) -join ',') + ')'
+            $tmp  = $j.File -replace '\.dll$', ('.' + $PID + '.tmp.dll')
+            [void]$sb.AppendLine('try {')
+            [void]$sb.AppendLine('  $src = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(' + (& $q $b64) + '))')
+            [void]$sb.AppendLine('  $a = @{ TypeDefinition = $src; OutputAssembly = ' + (& $q $tmp) + '; Language = ''CSharp'' }; $r = ' + $refs + '; if ($r.Count) { $a.ReferencedAssemblies = $r }')
+            [void]$sb.AppendLine('  Add-Type @a; Move-Item -LiteralPath ' + (& $q $tmp) + ' -Destination ' + (& $q $j.File) + ' -Force')
+            [void]$sb.AppendLine('  Get-ChildItem -LiteralPath ' + (& $q $script:TypeCacheDir) + ' -Filter ' + (& $q ($j.Module + '-*.dll')) + ' | Where-Object { $_.FullName -ne ' + (& $q $j.File) + ' } | Remove-Item -Force -ErrorAction SilentlyContinue')
+            [void]$sb.AppendLine('} catch { }')
+        }
+        $enc = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($sb.ToString()))
+        Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $enc) | Out-Null
+    } catch { Write-EmiLog ('No se pudo preparar la cache de tipos: ' + $_.Exception.Message) Info }
+}
+
+foreach ($m in $ModuleNames) {
+    New-Module -Name $m -ScriptBlock ([scriptblock]::Create($script:ModuleCode[$m])) | Import-Module -Force -DisableNameChecking
+}
+[void]$script:StartMarks.Add('modulos ' + $script:StartClock.ElapsedMilliseconds + ' ms (' + $script:TypeCacheNote + ')')
 
 Initialize-EmiCore -RootPath $Root
 if ($script:TrustNote) { Write-EmiLog $script:TrustNote Warn }
@@ -180,6 +297,7 @@ if (-not $isAdmin) { Write-EmiLog 'Sin permisos de administrador: muchas accione
 $xamlPath = Join-Path $Root 'UI\MainWindow.xaml'
 $xamlText = Get-Content -LiteralPath $xamlPath -Raw -Encoding UTF8
 $win = [Windows.Markup.XamlReader]::Parse($xamlText)
+[void]$script:StartMarks.Add('XAML ' + $script:StartClock.ElapsedMilliseconds + ' ms')
 
 function C { param([string] $Name) $win.FindName($Name) }
 
@@ -241,10 +359,60 @@ $busyAmber = [Windows.Media.BrushConverter]::new().ConvertFrom('#FFE08C1E')
 $script:Preamble = @'
 $ErrorActionPreference = 'Continue'
 foreach ($m in $EmiModuleNames) {
-    New-Module -Name $m -ScriptBlock ([scriptblock]::Create($EmiModuleCode[$m])) | Import-Module -Force -DisableNameChecking
+    New-Module -Name $m -ScriptBlock ([scriptblock]::Create($EmiModuleCode[$m])) | Import-Module -Force -DisableNameChecking -Global
 }
 Initialize-EmiCore -RootPath $EmiRootPath -DataPath $EmiDataPath
 '@
+
+function New-EmiWorkerRunspace {
+    <#  Runspace en segundo plano con lo que necesita el preambulo. Los modulos
+        se importan (del texto ya leido) la primera vez que se usa y se quedan. #>
+    $rs = [runspacefactory]::CreateRunspace()
+    $rs.ApartmentState = 'STA'
+    $rs.ThreadOptions  = 'ReuseThread'
+    $rs.Open()
+    $rs.SessionStateProxy.SetVariable('EmiSync', $global:EmiSync)
+    $rs.SessionStateProxy.SetVariable('EmiRootPath', $Root)
+    $rs.SessionStateProxy.SetVariable('EmiModuleCode', $script:ModuleCode)
+    $rs.SessionStateProxy.SetVariable('EmiDataPath', (Get-EmiDataDir))
+    $rs.SessionStateProxy.SetVariable('EmiModuleNames', [string[]]$ModuleNames)
+    return $rs
+}
+
+# Una sola vez por runspace: los modulos ya importados no se vuelven a importar
+$script:PreambleOnce = 'if (-not $global:EmiReady) {' + "`n" + $script:Preamble + "`n" + '$global:EmiReady = $true' + "`n" + '}'
+
+# ---------------- Estado del equipo (Inicio, Sistema, Recomendaciones) ----------------
+# Las consultas CIM, del firewall y de Zen tardan; antes corrian en el hilo de
+# la ventana al arrancar y tras cada tarea. Ahora van en su propio runspace
+# (solo leen: no compiten con la tarea en curso) y la ventana se rellena al
+# llegar el resultado. Los datos fijos del equipo se consultan una vez.
+$script:StatusQuery = @'
+if (-not $global:EmiStatic) { $global:EmiStatic = Get-EmiSystemSummary; $global:EmiStaticAt = Get-Date }
+$s = $global:EmiStatic
+$up = $s.Uptime
+if ($up -match '^(\d+)d (\d+)h (\d+)m$') {
+    $t = (New-TimeSpan -Days $Matches[1] -Hours $Matches[2] -Minutes $Matches[3]) + ((Get-Date) - $global:EmiStaticAt)
+    $up = '{0}d {1}h {2}m' -f $t.Days, $t.Hours, $t.Minutes
+}
+$r = @{
+    Disks    = @(Get-EmiDisks)
+    Privacy  = Get-EmiPrivacyStatus
+    Fast     = Get-EmiFastStartup
+    Eset     = [int](Get-EmiEsetRuleCount)
+    Zen      = Get-EmiZenInfo
+    ZenRecs  = Get-EmiZenBrowserStatus
+    Mem      = Get-EmiMemoryStatus
+    Summary  = $s
+    Uptime   = $up
+    Undo     = @(Get-EmiJournal).Count
+    Admin    = [bool](Test-EmiAdmin)
+}
+if ($EmiWithAnyDesk) { $r.AnyDesk = Get-EmiAnyDeskInfo; $r.AnySteps = @(Get-EmiAnyDeskSteps) }
+return $r
+'@
+$script:StatusRs = $null; $script:StatusPs = $null; $script:StatusHandle = $null
+$script:StatusPending = $false; $script:StatusWantAnyDesk = $false
 
 function Set-EmiBusy {
     param([bool] $Busy, [string] $Text = 'Listo')
@@ -375,6 +543,8 @@ $timer.Add_Tick({
         }
     } catch { }
 
+    try { Receive-EmiStatus } catch { }
+
     # Estado y progreso
     if ($script:Worker) {
         $ui.TbStatus.Text = [string]$global:EmiSync.Status
@@ -395,6 +565,10 @@ $timer.Add_Tick({
             if ($script:OnDone) {
                 $cb = $script:OnDone; $script:OnDone = $null
                 try { & $cb $result } catch { Write-EmiLog ('Error al refrescar: ' + $_.Exception.Message) Warn }
+            }
+            if ($null -ne $script:DebloatRetry -and -not $script:Worker) {
+                $sel = $script:DebloatRetry; $script:DebloatRetry = $null
+                Start-EmiDebloatLoad -SelectRecommended:$sel
             }
         }
     }
@@ -484,88 +658,152 @@ function Initialize-EmiAdvancedPages {
         $ui.LvPrivacy.ItemsSource = $pv
     } catch { Write-EmiLog "Error cargando Privacidad: $($_.Exception.Message)" Warn }
 
-    # Debloat
-    try {
-        $db = New-Object System.Collections.ArrayList
-        foreach ($t in Get-EmiDebloatItems) {
-            $i = New-Object EmiItem
-            $i.Name = $t.Name; $i.Detail = $t.Info; $i.Tag = $t.Id
-            $i.Recommended = $t.Recommended; $i.Selected = $t.Recommended
-            $i.Category = $t.Category
-            $i.SizeText = if ($t.Recommended) { 'recomendado' } else { 'opcional' }
-            [void]$db.Add($i)
-        }
-        $ui.LvDebloat.ItemsSource = $db
-    } catch { Write-EmiLog "Error cargando Debloat: $($_.Exception.Message)" Warn }
-
     # ESET
     try { $ui.LvEset.ItemsSource = Get-EmiEsetItems } catch { Write-EmiLog "Error cargando ESET: $($_.Exception.Message)" Warn }
 
     # Rutas por defecto del buscador
     $ui.TxtScanPath.Text = $env:USERPROFILE
 
-    Update-EmiSystemPage
-    Update-EmiPrivRecsPage
+    Update-EmiHome
     Update-EmiVaultUI
+
+    # Apps preinstaladas: 25 Get-AppxPackage y 4 consultas de caracteristicas
+    # de Windows; en segundo plano para que la ventana no se quede congelada.
+    Start-EmiDebloatLoad -SelectRecommended
+}
+
+$script:DebloatRetry = $null
+function Start-EmiDebloatLoad {
+    param([switch] $SelectRecommended)
+    # Con otra tarea en marcha se carga al terminar esa (lo mira el temporizador)
+    if ($script:Worker) { $script:DebloatRetry = [bool]$SelectRecommended; return }
+    Start-EmiWork -Label 'Cargando la lista de apps preinstaladas...' -Parameters @{ Sel = [bool]$SelectRecommended } -Work {
+        $db = New-Object System.Collections.ArrayList
+        foreach ($t in Get-EmiDebloatItems) {
+            $i = New-Object EmiItem
+            $i.Name = $t.Name; $i.Detail = $t.Info; $i.Tag = $t.Id
+            $i.Recommended = $t.Recommended; $i.Selected = ($P.Sel -and $t.Recommended)
+            $i.Category = $t.Category
+            $i.SizeText = if ($t.Recommended) { 'recomendado' } else { 'opcional' }
+            [void]$db.Add($i)
+        }
+        return ,$db
+    } -OnDone {
+        param($r)
+        $ui.LvDebloat.ItemsSource = @($r)[-1]
+    }
 }
 
 function Update-EmiHome {
-    $ui.IcDisks.ItemsSource = @(Get-EmiDisks)
+    <#  Pide en segundo plano el estado del equipo; Set-EmiStatusView lo pinta.
+        Si ya hay una consulta en marcha, se repite al acabar. #>
+    param([switch] $WithAnyDesk)
+    if ($WithAnyDesk) { $script:StatusWantAnyDesk = $true }
+    if ($script:StatusPs) { $script:StatusPending = $true; return }
+    try {
+        if (-not $script:StatusRs -or $script:StatusRs.RunspaceStateInfo.State -ne 'Opened') { $script:StatusRs = New-EmiWorkerRunspace }
+        $script:StatusRs.SessionStateProxy.SetVariable('EmiWithAnyDesk', [bool]$script:StatusWantAnyDesk)
+        $script:StatusWantAnyDesk = $false
+        $ps = [powershell]::Create()
+        $ps.Runspace = $script:StatusRs
+        [void]$ps.AddScript($script:PreambleOnce + "`n" + $script:StatusQuery, $true)
+        $script:StatusPs = $ps
+        $script:StatusHandle = $ps.BeginInvoke()
+    } catch {
+        Write-EmiLog ('No se pudo consultar el estado del equipo: ' + $_.Exception.Message) Warn
+        $script:StatusPs = $null; $script:StatusHandle = $null
+    }
+}
 
-    $p = Get-EmiPrivacyStatus
+# Las paginas de Sistema y Recomendaciones salen de la misma consulta
+function Update-EmiSystemPage { Update-EmiHome }
+function Update-EmiPrivRecsPage { Update-EmiHome }
+function Update-EmiAnyDesk { Update-EmiHome -WithAnyDesk }
+
+function Receive-EmiStatus {
+    <#  Lo llama el temporizador: recoge la consulta de estado si ya termino. #>
+    if (-not $script:StatusPs -or -not $script:StatusHandle.IsCompleted) { return }
+    $ps = $script:StatusPs
+    $script:StatusPs = $null
+    $data = $null
+    try { $data = @($ps.EndInvoke($script:StatusHandle))[-1] }
+    catch { Write-EmiLog ('Error al consultar el estado del equipo: ' + $_.Exception.Message) Warn }
+    try { foreach ($e in $ps.Streams.Error) { Write-EmiLog ('Estado del equipo: ' + [string]$e) Warn } } catch { }
+    try { $ps.Dispose() } catch { }
+    $script:StatusHandle = $null
+    if ($data) {
+        if ($data -is [System.Management.Automation.PSObject]) { $data = $data.BaseObject }
+        try { Set-EmiStatusView $data } catch { Write-EmiLog ('Error al refrescar: ' + $_.Exception.Message) Warn }
+    }
+    if ($script:StatusPending) { $script:StatusPending = $false; Update-EmiHome }
+}
+
+function Set-EmiStatusView {
+    param([hashtable] $D)
+    $ui.IcDisks.ItemsSource = @($D.Disks)
+
+    $p = $D.Privacy
     $ui.TbStatPrivacy.Text = if ($p.Clean) { 'Desactivada correctamente' }
                              else { 'Nivel: ' + $p.TelemetryLevel + ' / DiagTrack: ' + $p.DiagTrack }
-
-    $f = Get-EmiFastStartup
+    $f = $D.Fast
     $ui.TbStatFast.Text = $f.StatusText
+    $n = [int]$D.Eset
+    $ui.TbStatEset.Text = if ($n -gt 0) { [string]$n + ' reglas KB332 activas' } else { 'Sin reglas aplicadas' }
 
-    $n = Get-EmiEsetRuleCount
-    $ui.TbStatEset.Text = if ($n -gt 0) { "$n reglas KB332 activas" } else { 'Sin reglas aplicadas' }
-
-    $z = Get-EmiZenInfo
+    $z = $D.Zen
     $ui.TbStatZen.Text = if (-not $z.Installed) { 'Zen no instalado (no se toca)' }
                          elseif ($z.IsDefault)  { 'Zen es el predeterminado' }
                          else { 'Predeterminado actual: ' + $z.CurrentDefault }
-
-    $m = Get-EmiMemoryStatus
+    $m = $D.Mem
     $ui.TbStatRam.Text = $m.UsedText + ' de ' + $m.TotalText + ' en uso (' + $m.Percent + '%)'
 
-    $s = Get-EmiSystemSummary
+    $s = $D.Summary
     $ui.TbStatPc.Text  = $s.Computer + ' - ' + $s.OS
     $ui.TbHello.Text   = 'Poner a punto ' + $s.Computer
-    $ui.TbUndoCount.Text = @(Get-EmiJournal).Count.ToString() + ' cambios registrados'
-
-    $ui.TbAdminBadge.Text = if (Test-EmiAdmin) { 'Ejecutando como administrador.' }
+    $ui.TbUndoCount.Text = [string]$D.Undo + ' cambios registrados'
+    $ui.TbAdminBadge.Text = if ($D.Admin) { 'Ejecutando como administrador.' }
                             else { 'SIN administrador: cierra y abre EmiToolkit.cmd.' }
-}
 
-function Update-EmiSystemPage {
-    $z = Get-EmiZenInfo
+    # Navegador y energia
     $ui.TbZenState.Text = if (-not $z.Installed) { 'Zen Browser no esta instalado en este equipo.' }
                           elseif ($z.IsDefault)  { 'Zen ya es el navegador predeterminado (' + $z.Path + ').' }
                           else { 'Zen instalado en ' + $z.Path + '. Predeterminado actual: ' + $z.CurrentDefault + '.' }
-    $ui.BtnZenSet.IsEnabled = $z.Installed
-
-    $f = Get-EmiFastStartup
+    $ui.BtnZenSet.IsEnabled = [bool]$z.Installed
     $ui.TbFastState.Text = 'Estado actual: ' + $f.StatusText
+    $ui.TbSysInfo.Text = $s.Computer + ' / ' + $s.User + "`n" + $s.OS + "`n" + $s.Cpu + "`n" + 'RAM: ' + $s.Ram + '   Encendido hace: ' + $D.Uptime
 
-    $s = Get-EmiSystemSummary
-    $ui.TbSysInfo.Text = $s.Computer + ' / ' + $s.User + "`n" + $s.OS + "`n" + $s.Cpu + "`n" + 'RAM: ' + $s.Ram + '   Encendido hace: ' + $s.Uptime
-}
-
-function Update-EmiAnyDesk {
-    $a = Get-EmiAnyDeskInfo
-    if ($a.Installed) {
-        $ui.TbAnyState.Text = 'AnyDesk ya esta instalado en este equipo.'
-        $ui.TbAnyId.Text    = if ($a.Id) { 'Tu direccion de AnyDesk: ' + $a.Id } else { 'Abre AnyDesk para ver tu direccion de 9 cifras.' }
-        $ui.BtnAnyOpen.IsEnabled = $true
+    # Recomendaciones de privacidad
+    $zr = $D.ZenRecs
+    if (-not $zr.Installed) {
+        $ui.TbPrivRecZenState.Text = 'Zen Browser no esta instalado.'
+        $ui.BtnPrivRecZenSet.Visibility = 'Collapsed'
+        $ui.BtnPrivRecZenDownload.Visibility = 'Visible'
+        $ui.CardUblock.Visibility = 'Collapsed'
     } else {
-        $ui.TbAnyState.Text = 'AnyDesk todavia no esta instalado.'
-        $ui.TbAnyId.Text    = if ($a.Downloaded) { 'Ya tienes AnyDesk.exe en Descargas: abrelo para instalarlo.' }
-                              else { 'Empieza por el paso 1 para descargarlo.' }
-        $ui.BtnAnyOpen.IsEnabled = $false
+        $ui.TbPrivRecZenState.Text = if ($zr.IsDefault) { 'Zen ya es el navegador predeterminado (' + $zr.Path + ').' }
+                                     else { 'Zen instalado en ' + $zr.Path + '. Predeterminado actual: ' + $zr.CurrentDefault + '.' }
+        $ui.BtnPrivRecZenSet.Visibility = if ($zr.IsDefault) { 'Collapsed' } else { 'Visible' }
+        $ui.BtnPrivRecZenDownload.Visibility = 'Collapsed'
+        $ui.CardUblock.Visibility = 'Visible'
+        $ui.TbPrivRecUblockState.Text = if ($zr.UblockInstalled) { 'uBlock Origin ya esta instalado.' } else { 'uBlock Origin NO esta instalado. Recomendado.' }
+        $ui.BtnPrivRecUblockInstall.IsEnabled = -not $zr.UblockInstalled
+        $ui.BtnPrivRecUblockInstall.Content   = if ($zr.UblockInstalled) { 'Ya instalado' } else { 'Instalar uBlock Origin' }
     }
-    $ui.IcAnySteps.ItemsSource = @(Get-EmiAnyDeskSteps)
+
+    if ($D.ContainsKey('AnyDesk') -and $D.AnyDesk) {
+        $a = $D.AnyDesk
+        if ($a.Installed) {
+            $ui.TbAnyState.Text = 'AnyDesk ya esta instalado en este equipo.'
+            $ui.TbAnyId.Text    = if ($a.Id) { 'Tu direccion de AnyDesk: ' + $a.Id } else { 'Abre AnyDesk para ver tu direccion (9 o 10 cifras).' }
+            $ui.BtnAnyOpen.IsEnabled = $true
+        } else {
+            $ui.TbAnyState.Text = 'AnyDesk todavia no esta instalado.'
+            $ui.TbAnyId.Text    = if ($a.Downloaded) { 'Ya tienes AnyDesk.exe en Descargas: abrelo para instalarlo.' }
+                                  else { 'Empieza por el paso 1 para descargarlo.' }
+            $ui.BtnAnyOpen.IsEnabled = $false
+        }
+        $ui.IcAnySteps.ItemsSource = @($D.AnySteps)
+    }
 }
 
 function Get-EmiChecked {
@@ -901,31 +1139,6 @@ $ui.BtnPrivApply.Add_Click({
 #                   RECOMENDACIONES DE PRIVACIDAD
 # ======================================================================
 
-function Update-EmiPrivRecsPage {
-    $z = Get-EmiZenBrowserStatus
-    if (-not $z.Installed) {
-        $ui.TbPrivRecZenState.Text = 'Zen Browser no esta instalado.'
-        $ui.BtnPrivRecZenSet.Visibility = 'Collapsed'
-        $ui.BtnPrivRecZenDownload.Visibility = 'Visible'
-        $ui.CardUblock.Visibility = 'Collapsed'
-    } elseif ($z.IsDefault) {
-        $ui.TbPrivRecZenState.Text = "Zen ya es el navegador predeterminado ($($z.Path))."
-        $ui.BtnPrivRecZenSet.Visibility = 'Collapsed'
-        $ui.BtnPrivRecZenDownload.Visibility = 'Collapsed'
-        $ui.CardUblock.Visibility = 'Visible'
-        $ui.TbPrivRecUblockState.Text = if ($z.UblockInstalled) { 'uBlock Origin ya esta instalado.' } else { 'uBlock Origin NO esta instalado. Recomendado.' }
-        $ui.BtnPrivRecUblockInstall.IsEnabled = -not $z.UblockInstalled
-        $ui.BtnPrivRecUblockInstall.Content   = if ($z.UblockInstalled) { 'Ya instalado' } else { 'Instalar uBlock Origin' }
-    } else {
-        $ui.TbPrivRecZenState.Text = "Zen instalado en $($z.Path). Predeterminado actual: $($z.CurrentDefault)."
-        $ui.BtnPrivRecZenSet.Visibility = 'Visible'
-        $ui.BtnPrivRecZenDownload.Visibility = 'Collapsed'
-        $ui.CardUblock.Visibility = 'Visible'
-        $ui.TbPrivRecUblockState.Text = if ($z.UblockInstalled) { 'uBlock Origin ya esta instalado.' } else { 'uBlock Origin NO esta instalado.' }
-        $ui.BtnPrivRecUblockInstall.IsEnabled = -not $z.UblockInstalled
-    }
-}
-
 function Update-EmiVaultUI {
     if (Test-EmiVaultUnlocked) {
         $ui.TbVaultLockedMsg.Visibility = 'Collapsed'
@@ -952,7 +1165,7 @@ $ui.BtnPrivRecZenDownload.Add_Click({ Open-EmiUrl 'https://zen-browser.app/' }) 
 
 $ui.BtnPrivRecZenSet.Add_Click({
     Start-EmiWork -Label 'Configurando Zen...' -Work { return (Set-EmiZenDefault) } -OnDone {
-        Update-EmiPrivRecsPage; Update-EmiHome
+        Update-EmiHome
         Show-EmiTaskDone 'Configuracion de Zen' -OnlyIfIssues
     }
 })
@@ -1102,19 +1315,10 @@ $ui.BtnDebloatApply.Add_Click({
     Start-EmiWork -Label 'Aplicando debloat...' -Parameters @{ Ids = $ids } -Work {
         return (Invoke-EmiDebloatSet -Ids $P.Ids)
     } -OnDone {
-        # Refrescar catalogo para reflejar apps removidas / features toggled
-        $db = New-Object System.Collections.ArrayList
-        foreach ($t in Get-EmiDebloatItems) {
-            $i = New-Object EmiItem
-            $i.Name = $t.Name; $i.Detail = $t.Info; $i.Tag = $t.Id
-            $i.Recommended = $t.Recommended; $i.Selected = $false
-            $i.Category = $t.Category
-            $i.SizeText = if ($t.Recommended) { 'recomendado' } else { 'opcional' }
-            [void]$db.Add($i)
-        }
-        $ui.LvDebloat.ItemsSource = $db
         Update-EmiHome
         Show-EmiTaskDone 'Debloat terminado' -Extra 'Algunos cambios de caracteristicas de Windows necesitan reiniciar.'
+        # Volver a leer el catalogo (apps quitadas, caracteristicas cambiadas), en segundo plano
+        Start-EmiDebloatLoad
     }
 })
 
@@ -1415,11 +1619,19 @@ $ui.BtnVortexRemove.Add_Click({
 })
 
 $ui.BtnVortexFullClean.Add_Click({
-    $info = Get-EmiVortexInfo
-    if (-not $info.Installed) {
-        [System.Windows.MessageBox]::Show('Vortex no esta instalado en este equipo.', 'Another''s Toolbox', 'OK', 'Information') | Out-Null
-        return
+    # Buscar Vortex lee el registro y el disco: en segundo plano
+    Start-EmiWork -Label 'Buscando Vortex...' -Work { return (Get-EmiVortexInfo) } -OnDone {
+        param($r)
+        $info = @($r)[-1]
+        if (-not $info -or -not $info.Installed) {
+            [System.Windows.MessageBox]::Show('Vortex no esta instalado en este equipo.', 'Another''s Toolbox', 'OK', 'Information') | Out-Null
+            return
+        }
+        Confirm-EmiVortexFullClean
     }
+})
+
+function Confirm-EmiVortexFullClean {
     $vortexMsg = 'ELIMINACION COMPLETA DE VORTEX' + "`n`n" + 'Se purgaran TODOS los mods desplegados, se borrara APPDATA\Vortex (staging, descargas, perfiles, base de datos) y se desinstalara Vortex.' + "`n`n" + 'Esta accion es IRREVERSIBLE.' + "`n`n" + 'Continuar?'
     $ans = [System.Windows.MessageBox]::Show($vortexMsg, 'Confirmar eliminacion total', 'YesNo', 'Error', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
@@ -1430,7 +1642,7 @@ $ui.BtnVortexFullClean.Add_Click({
         Show-EmiTaskDone 'Eliminacion de Vortex terminada'
         $ui.BtnVortexScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
     }
-})
+}
 
 $ui.BtnVortexSkyrimClean.Add_Click({
     $skyrimMsg = 'FORCE CLEAN SKYRIM' + "`n`n" + 'Esta accion ELIMINARA COMPLETAMENTE:' + "`n`n" + '1. TODOS los mods de Vortex' + "`n" + '2. TODOS los datos de Vortex' + "`n" + '3. Vortex se desinstalara' + "`n" + '4. TODAS las carpetas de Skyrim (Data, Mods, configuraciones)' + "`n" + '5. TODOS los archivos de usuario (Skyrim.ini, SkyrimPrefs.ini)' + "`n" + '6. Manifiestos de despliegue de Vortex' + "`n" + '7. Carpetas en Documentos\My Games\Skyrim' + "`n`n" + 'Esta accion es IRREVERSIBLE y borrara completamente Skyrim.' + "`n`n" + 'Continuar?'
@@ -1453,7 +1665,7 @@ $ui.BtnZenSet.Add_Click({
     Start-EmiWork -Label 'Configurando Zen...' -Work { return (Set-EmiZenDefault) } -OnDone {
         param($r)
         $res = @($r)[-1]
-        Update-EmiSystemPage; Update-EmiHome
+        Update-EmiHome
         $msg = switch ($res) {
             'Done'           { 'Zen ya es el navegador predeterminado.' }
             'AlreadyDefault' { 'Zen ya era el navegador predeterminado.' }
@@ -1473,14 +1685,14 @@ $ui.BtnFastDisable.Add_Click({
     Start-EmiWork -Label 'Desactivando inicio rapido...' -Parameters @{ H = $h } -Work {
         if ($P.H) { return (Disable-EmiFastStartup -AlsoDisableHibernation) }
         return (Disable-EmiFastStartup)
-    } -OnDone { Update-EmiSystemPage; Update-EmiHome; Show-EmiTaskDone 'Inicio rapido desactivado' -OnlyIfIssues }
+    } -OnDone { Update-EmiHome; Show-EmiTaskDone 'Inicio rapido desactivado' -OnlyIfIssues }
 })
 
 $ui.BtnFastEnable.Add_Click({
     # En segundo plano y por la cola de tareas: escribir en el diario desde la
     # UI mientras otra tarea lo reescribe perdia entradas
     Start-EmiWork -Label 'Reactivando inicio rapido...' -Work { return (Enable-EmiFastStartup) } -OnDone {
-        Update-EmiSystemPage; Update-EmiHome; Show-EmiTaskDone 'Inicio rapido reactivado' -OnlyIfIssues
+        Update-EmiHome; Show-EmiTaskDone 'Inicio rapido reactivado' -OnlyIfIssues
     }
 })
 
@@ -1569,11 +1781,13 @@ $win.Add_SourceInitialized({
 
 $win.Add_Loaded({
     $script:UiStarted = $true
-    Update-EmiHome
-    # AnyDesk ya no se ejecuta (solo se leen su configuracion y su firma), pero
-    # comprobar la firma puede tardar sin red: despues de pintar la ventana.
-    [void]$win.Dispatcher.BeginInvoke([Action]{ Update-EmiAnyDesk }, [System.Windows.Threading.DispatcherPriority]::ApplicationIdle)
+    # Estado del equipo y AnyDesk (su firma puede tardar sin red): en segundo plano
+    Update-EmiHome -WithAnyDesk
     $ui.TbHeaderHint.Text = $env:COMPUTERNAME + ' - mantenimiento de Windows 11'
+    [void]$script:StartMarks.Add('ventana ' + $script:StartClock.ElapsedMilliseconds + ' ms')
+    Write-EmiLog ('Arranque: ' + $script:StartClock.ElapsedMilliseconds + ' ms (' + ($script:StartMarks -join ', ') + ').') Info
+    $script:StartClock.Stop()
+    Start-EmiTypeCacheBuild
 })
 
 # Cerrar la ventana con una tarea en marcha la corta a medias (DISM, una
@@ -1591,6 +1805,8 @@ $win.Add_Closed({
     try { $timer.Stop() } catch { }
     Clear-EmiSecretClipboard   # una contrasena copiada no sobrevive a la app
     if ($script:Worker) { try { $script:Worker.Stop(); $script:Worker.Dispose() } catch { } }
+    try { if ($script:StatusPs) { $script:StatusPs.Stop(); $script:StatusPs.Dispose() } } catch { }
+    try { if ($script:StatusRs) { $script:StatusRs.Dispose() } } catch { }
     Write-EmiLog 'Another''s Toolbox cerrado.' Info
 })
 

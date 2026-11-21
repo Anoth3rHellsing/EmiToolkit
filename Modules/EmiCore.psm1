@@ -7,10 +7,14 @@ $script:LogFile = $null
 $script:Journal = $null
 
 # ------------------------- Tipos para la UI --------------------------
-if (-not ('EmiItem' -as [type])) {
-Add-Type -Language CSharp -TypeDefinition @'
+# Un solo bloque de C# (antes eran dos Add-Type, dos compilaciones en cada
+# arranque). EmiToolkit.ps1 lee este texto con el AST antes de importar el
+# modulo y, si hay una copia compilada en %ProgramData%\EmiToolkit\cache con
+# el mismo hash, la carga y este Add-Type ya no se ejecuta.
+$script:EmiTypeSource = @'
 using System;
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 
 public class EmiItem : INotifyPropertyChanged
 {
@@ -45,13 +49,6 @@ public class EmiItem : INotifyPropertyChanged
     public bool Locked { get { return _locked; } set { _locked = value; Raise("Locked"); Raise("Editable"); } }
     public bool Editable { get { return !_locked; } }
 }
-'@
-}
-
-if (-not ('EmiNative' -as [type])) {
-Add-Type -Language CSharp -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
 
 public static class EmiNative
 {
@@ -69,6 +66,8 @@ public static class EmiNative
     public const int DWMWA_MICA_EFFECT             = 1029; // builds 22000
 }
 '@
+if (-not ('EmiItem' -as [type]) -or -not ('EmiNative' -as [type])) {
+    Add-Type -Language CSharp -TypeDefinition $script:EmiTypeSource
 }
 
 # --------------------------- Inicializacion --------------------------

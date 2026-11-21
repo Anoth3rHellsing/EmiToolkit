@@ -37,40 +37,13 @@ function Initialize-EmiVault {
     $script:VaultUnlocked = $false
     $script:VaultEntries  = @()
 
-    if (-not $script:WinRtLoaded) {
-        try {
-            Add-Type -AssemblyName System.Runtime.WindowsRuntime -ErrorAction Stop
+    try { Add-Type -AssemblyName System.Security -ErrorAction SilentlyContinue } catch { }
+}
 
-            $script:UCVType = [Type]::GetType(
-                'Windows.Security.Credentials.UI.UserConsentVerifier, Windows.Security.Credentials.UI, ContentType=WindowsRuntime')
-            $script:UCAvailType = [Type]::GetType(
-                'Windows.Security.Credentials.UI.UserConsentVerifierAvailability, Windows.Security.Credentials.UI, ContentType=WindowsRuntime')
-            $script:UCResultType = [Type]::GetType(
-                'Windows.Security.Credentials.UI.UserConsentVerificationResult, Windows.Security.Credentials.UI, ContentType=WindowsRuntime')
-
-            if ($script:UCVType -and $script:UCAvailType -and $script:UCResultType) {
-                $script:WinRtLoaded = $true
-            } else {
-                Write-EmiLog 'Tipos WinRT de UserConsentVerifier no encontrados.' Warn
-            }
-        } catch {
-            Write-EmiLog "No se pudo cargar WinRT para Windows Hello: $($_.Exception.Message)" Warn
-        }
-    }
-
-    # Compilar bridge C# para operaciones async WinRT (una sola vez)
-    if (-not $script:BridgeCompiled -and $script:WinRtLoaded) {
-        try {
-            # Verificar si ya existe (puede haber sido compilado en una carga anterior del modulo)
-            $existing = [System.AppDomain]::CurrentDomain.GetAssemblies() |
-                ForEach-Object { $_.GetType('EmiHelloBridge') } |
-                Where-Object { $null -ne $_ } |
-                Select-Object -First 1
-
-            if ($existing) {
-                $script:BridgeCompiled = $true
-            } else {
-                $bridgeCode = @'
+# El puente C# con WinRT solo se compila la primera vez que se desbloquea la
+# boveda (antes, en cada arranque aunque nadie la abriera). Si EmiToolkit.ps1
+# encontro una copia compilada de confianza en la cache, el tipo ya existe.
+$script:HelloBridgeSource = @'
 using System;
 using System.Linq;
 using System.Reflection;
@@ -135,48 +108,68 @@ public static class EmiHelloBridge {
     }
 }
 '@
-                Add-Type -TypeDefinition $bridgeCode `
-                    -ReferencedAssemblies @('System.Runtime.WindowsRuntime', 'System.Core', 'WindowsBase') `
-                    -ErrorAction Stop
-                $script:BridgeCompiled = $true
+
+function Initialize-EmiHelloBridge {
+    if (-not $script:WinRtLoaded) {
+        try {
+            Add-Type -AssemblyName System.Runtime.WindowsRuntime -ErrorAction Stop
+
+            $script:UCVType = [Type]::GetType(
+                'Windows.Security.Credentials.UI.UserConsentVerifier, Windows.Security.Credentials.UI, ContentType=WindowsRuntime')
+            $script:UCAvailType = [Type]::GetType(
+                'Windows.Security.Credentials.UI.UserConsentVerifierAvailability, Windows.Security.Credentials.UI, ContentType=WindowsRuntime')
+            $script:UCResultType = [Type]::GetType(
+                'Windows.Security.Credentials.UI.UserConsentVerificationResult, Windows.Security.Credentials.UI, ContentType=WindowsRuntime')
+
+            if ($script:UCVType -and $script:UCAvailType -and $script:UCResultType) {
+                $script:WinRtLoaded = $true
+            } else {
+                Write-EmiLog 'Tipos WinRT de UserConsentVerifier no encontrados.' Warn
             }
         } catch {
-            Write-EmiLog "No se pudo compilar EmiHelloBridge: $($_.Exception.Message)" Warn
+            Write-EmiLog "No se pudo cargar WinRT para Windows Hello: $($_.Exception.Message)" Warn
         }
     }
 
-    try { Add-Type -AssemblyName System.Security -ErrorAction SilentlyContinue } catch { }
+    if (-not $script:BridgeCompiled -and $script:WinRtLoaded) {
+        try {
+            if (-not ('EmiHelloBridge' -as [type])) {
+                Add-Type -TypeDefinition $script:HelloBridgeSource `
+                    -ReferencedAssemblies @('System.Runtime.WindowsRuntime', 'System.Core', 'WindowsBase') `
+                    -ErrorAction Stop
+            }
+            $script:BridgeCompiled = $true
+        } catch {
+            Write-EmiLog "No se pudo preparar Windows Hello (puente C#): $($_.Exception.Message)" Warn
+        }
+    }
 }
 
 # ------------------------------------------------------------------
 #  Autenticacion con Windows Hello
 # ------------------------------------------------------------------
 function Request-EmiVaultUnlock {
+    Initialize-EmiHelloBridge
     if (-not $script:WinRtLoaded) {
         Write-EmiLog 'Windows Hello no disponible en este equipo.' Warn
         return $false
     }
 
     if (-not $script:BridgeCompiled) {
-        Write-EmiLog 'Bridge de Windows Hello no compilado.' Warn
+        Write-EmiLog 'Windows Hello no esta listo en este equipo (no se pudo preparar el puente).' Warn
         return $false
     }
 
     try {
-        $bridgeType = $null
-        foreach ($asm in [System.AppDomain]::CurrentDomain.GetAssemblies()) {
-            $bridgeType = $asm.GetType('EmiHelloBridge')
-            if ($bridgeType) { break }
-        }
-
+        $bridgeType = 'EmiHelloBridge' -as [type]
         if (-not $bridgeType) {
-            Write-EmiLog 'Tipo EmiHelloBridge no encontrado en ensamblados cargados.' Error
+            Write-EmiLog 'Windows Hello no esta listo: falta el puente C# en memoria.' Error
             return $false
         }
 
         $result = $bridgeType.GetMethod('CheckAndVerify').Invoke($null, @(
             $script:UCVType, $script:UCAvailType, $script:UCResultType,
-            'Desbloquear almacen de contrasenas de Emi Toolkit'))
+            'Desbloquear la bóveda de contraseñas de Another''s Toolbox'))
 
         if ($result -eq 'Verified') {
             # Si vault.dat no se puede descifrar (otro usuario u otro equipo, p. ej.
