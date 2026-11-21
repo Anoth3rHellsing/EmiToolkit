@@ -20,23 +20,39 @@ $script:ProtectedStartup = @(
     'rtkaud', 'realtek', 'nahimic', 'waves maxx', 'dolby', 'sound blaster',
     'synaptics', 'elan', 'touchpad', 'i2c', 'igfxtray', 'hotkey', 'atkosd',
     'dell', 'lenovo vantage', 'hp support', 'thinkpad', 'battery',
-    'onedrive setup', 'ctfmon', 'securehealth'
+    'onedrive setup', 'ctfmon', 'securehealth',
+    'mcafee', 'norton', 'malwarebytes', 'avira', 'trend micro', 'webroot', 'f-secure', 'panda'
 )
 
 # Se marcan para desactivar en modo basico (arrancan solos sin necesidad).
+# No van aqui (auditoria de sistema, EmiStartup.psm1:27-39): clientes de
+# sincronizacion (OneDrive, Dropbox, Drive: dejan de subir Escritorio y
+# Documentos), actualizadores (Edge/WebView2 se quedaban sin parches),
+# antivirus ni utilidades de perifericos (macros, DPI, ecualizador).
 $script:KnownBloat = @(
     'spotify', 'discord', 'steam', 'epic games', 'epicgameslauncher', 'ea desktop', 'origin',
     'ubisoft', 'uplay', 'battle.net', 'gog galaxy', 'roblox', 'riot',
     'skype', 'zoom', 'teams', 'slack', 'telegram', 'whatsapp', 'signal',
     'adobe', 'acrotray', 'creative cloud', 'ccxprocess', 'adobegcinvoker',
     'itunes', 'ituneshelper', 'quicktime', 'bonjour',
-    'cortana', 'copilot', 'edgeupdate', 'microsoftedgeautolaunch', 'gamebar',
+    'cortana', 'copilot', 'microsoftedgeautolaunch', 'gamebar',
     'utorrent', 'bittorrent', 'qbittorrent',
-    'java update', 'jusched', 'ccleaner', 'iobit', 'driverbooster', 'advanced systemcare',
+    'ccleaner', 'iobit', 'driverbooster', 'advanced systemcare',
     'wps office', 'wpscloudsvr', 'sunlogin', 'todesk',
-    'nvidia geforce experience', 'nvbackend', 'razer', 'corsair', 'icue', 'logitech',
-    'mcafee', 'norton', 'opera', 'brave', 'vivaldi', 'yandex',
-    'onedrive', 'dropbox', 'google drive', 'backup and sync'
+    'nvidia geforce experience', 'nvbackend',
+    'opera', 'brave', 'vivaldi', 'yandex'
+)
+
+# Aunque casen con KnownBloat, nunca se recomiendan (se pueden desactivar a
+# mano desde la lista). Actualizadores: se mira solo el NOMBRE de la entrada,
+# porque Discord, Slack o Teams arrancan con el lanzador "Update.exe
+# --processStart" de Squirrel. El resto (sincronizacion en la nube, antivirus
+# y perifericos) se mira en el nombre y en el comando.
+$script:NeverAutoName = @('update', 'updater', 'jusched')
+$script:NeverAuto = @(
+    'onedrive', 'dropbox', 'google drive', 'googledrivefs', 'backup and sync', 'icloud', 'megasync', 'nextcloud', 'pcloud',
+    'mcafee', 'norton',
+    'logitech', 'lghub', 'logioptions', 'logi options', 'razer', 'corsair', 'icue', 'steelseries', 'hyperx', 'ngenuity', 'armoury', 'msi center', 'wacom'
 )
 
 function Test-EmiProtectedName {
@@ -51,6 +67,28 @@ function Test-EmiBloatName {
     $t = "$Text".ToLower()
     foreach ($p in $script:KnownBloat) { if ($t -like "*$p*") { return $true } }
     return $false
+}
+
+function Test-EmiNeverAutoName {
+    param([string] $Name, [string] $Command)
+    $n = "$Name".ToLower(); $t = "$Name $Command".ToLower()
+    foreach ($p in $script:NeverAutoName) { if ($n -like "*$p*") { return $true } }
+    foreach ($p in $script:NeverAuto)     { if ($t -like "*$p*") { return $true } }
+    return $false
+}
+
+function Test-EmiStartupRecommended {
+    <#  Logica pura: se recomienda desactivar (y el modo basico lo hace) solo
+        una entrada Run o de la carpeta Inicio, no protegida, que case con
+        KnownBloat y no con NeverAuto. Las tareas programadas nunca: una
+        tarea como MicrosoftEdgeUpdateTaskMachineCore tiene tambien su
+        disparador diario y se desactivaba entera.  #>
+    param([string] $Name, [string] $Command, [ValidateSet('REG','FOLDER','TASK')][string] $Kind)
+    if ($Kind -eq 'TASK') { return $false }
+    $text = "$Name $Command"
+    if (Test-EmiProtectedName $text) { return $false }
+    if (Test-EmiNeverAutoName -Name $Name -Command $Command) { return $false }
+    return (Test-EmiBloatName $text)
 }
 
 function Get-EmiStartupState {
@@ -121,7 +159,7 @@ function Get-EmiStartupItems {
             $it.Category    = $rk.Scope
             $it.Status      = if ($enabled) { 'Activo' } else { 'Desactivado' }
             $it.Locked      = $prot
-            $it.Recommended = (-not $prot) -and (Test-EmiBloatName "$($p.Name) $cmd")
+            $it.Recommended = Test-EmiStartupRecommended -Name $p.Name -Command $cmd -Kind 'REG'
             $it.Selected    = $it.Recommended -and $enabled
             $it.SizeText    = if ($prot) { 'protegido' } elseif ($it.Recommended) { 'innecesario' } else { '' }
             [void]$items.Add($it)
@@ -148,7 +186,7 @@ function Get-EmiStartupItems {
                 $it.Category    = "Carpeta Inicio ($($f.S))"
                 $it.Status      = if ($enabled) { 'Activo' } else { 'Desactivado' }
                 $it.Locked      = $prot
-                $it.Recommended = (-not $prot) -and (Test-EmiBloatName $_.Name)
+                $it.Recommended = Test-EmiStartupRecommended -Name $_.Name -Kind 'FOLDER'
                 $it.Selected    = $it.Recommended -and $enabled
                 $it.SizeText    = if ($prot) { 'protegido' } elseif ($it.Recommended) { 'innecesario' } else { '' }
                 [void]$items.Add($it)
@@ -170,9 +208,9 @@ function Get-EmiStartupItems {
                 $it.Category    = 'Tarea de inicio'
                 $it.Status      = 'Activo'
                 $it.Locked      = $prot
-                $it.Recommended = (-not $prot) -and (Test-EmiBloatName $_.TaskName)
-                $it.Selected    = $it.Recommended
-                $it.SizeText    = if ($prot) { 'protegido' } elseif ($it.Recommended) { 'innecesario' } else { '' }
+                $it.Recommended = Test-EmiStartupRecommended -Name $_.TaskName -Kind 'TASK'   # siempre $false
+                $it.Selected    = $false
+                $it.SizeText    = if ($prot) { 'protegido' } else { 'revisar' }
                 [void]$items.Add($it)
             }
     } catch { }
@@ -212,7 +250,10 @@ function Invoke-EmiStartupCleanup {
     <#  Desactiva las entradas indicadas (o las recomendadas si no se pasa ninguna). #>
     param([EmiItem[]] $Items)
 
-    if (-not $Items -or $Items.Count -eq 0) { $Items = @(Get-EmiStartupItems | Where-Object { $_.Recommended -and -not $_.Locked }) }
+    if (-not $Items -or $Items.Count -eq 0) {
+        # Modo basico: solo entradas Run/carpeta Inicio recomendadas, nunca tareas.
+        $Items = @(Get-EmiStartupItems | Where-Object { $_.Recommended -and -not $_.Locked -and $_.Tag -notlike 'TASK|*' })
+    }
 
     $n = 0; $i = 0
     foreach ($it in $Items) {
