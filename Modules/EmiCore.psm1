@@ -1242,13 +1242,19 @@ function Undo-EmiChanges {
 
 function New-EmiRestorePoint {
     param([string] $Description = 'EmiToolkit - antes de optimizar')
+    $key  = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore'
+    $name = 'SystemRestorePointCreationFrequency'
+    $had  = $false; $old = $null; $changed = $false
     try {
         Set-EmiStatus 'Creando punto de restauracion...'
         Write-EmiLog 'Creando punto de restauracion del sistema...' Step
 
-        # Windows limita a 1 punto cada 24h; se desactiva ese limite temporalmente
-        New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' `
-                         -Name 'SystemRestorePointCreationFrequency' -Value 0 -PropertyType DWord -Force -ErrorAction SilentlyContinue | Out-Null
+        # Windows limita a 1 punto cada 24h; se quita ese limite solo mientras
+        # se crea el punto y se deja como estaba (finally), exista o no antes.
+        $p = Get-ItemProperty -LiteralPath $key -Name $name -ErrorAction SilentlyContinue
+        if ($null -ne $p -and $p.PSObject.Properties.Name -contains $name) { $had = $true; $old = $p.$name }
+        New-ItemProperty -Path $key -Name $name -Value 0 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+        $changed = $true
 
         Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction SilentlyContinue
         Checkpoint-Computer -Description $Description -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
@@ -1258,6 +1264,14 @@ function New-EmiRestorePoint {
     catch {
         Write-EmiLog "No se pudo crear el punto de restauracion: $($_.Exception.Message)" Warn
         return $false
+    }
+    finally {
+        if ($changed) {
+            try {
+                if ($had) { New-ItemProperty -Path $key -Name $name -Value $old -PropertyType DWord -Force -ErrorAction Stop | Out-Null }
+                else { Remove-ItemProperty -LiteralPath $key -Name $name -Force -ErrorAction Stop }
+            } catch { Write-EmiLog "No se pudo restaurar $name : $($_.Exception.Message)" Warn }
+        }
     }
 }
 
