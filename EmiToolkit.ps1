@@ -720,7 +720,7 @@ $ui.BtnDeleteBig.Add_Click({
     $sel = Get-EmiChecked $ui.LvBig
     if ($sel.Count -eq 0) { return }
     $tot = ($sel | Measure-Object Size -Sum).Sum
-    $recMsg = 'Se enviaran ' + $sel.Count + ' elementos a la papelera (' + (Format-EmiSize $tot) + ').' + "`n" + 'Podras recuperarlos desde la papelera.' + "`n`n" + 'Continuar?'
+    $recMsg = 'Se enviaran ' + $sel.Count + ' elementos a la papelera (' + (Format-EmiSize $tot) + ').' + "`n" + 'Podras recuperarlos desde la papelera.' + "`n`n" + 'Algunos pueden omitirse (unidades de red o extraibles, discos sin papelera o archivos que superan su cuota): no se borran y el motivo queda en el registro.' + "`n`n" + 'Continuar?'
     $ans = [System.Windows.MessageBox]::Show($recMsg, 'Confirmar', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
 
