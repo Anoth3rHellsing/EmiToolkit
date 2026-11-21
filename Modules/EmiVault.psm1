@@ -15,7 +15,25 @@ $script:UCResultType   = $null
 $script:BridgeCompiled = $false
 
 function Initialize-EmiVault {
-    $script:VaultPath     = Join-Path (Get-EmiRoot) 'Data\vault.dat'
+    # La boveda vive en el perfil de quien la usa (%LOCALAPPDATA%\EmiToolkit,
+    # ACL del usuario). En <app>\Data, con la herramienta en C:\EmiToolkit,
+    # cualquier otro usuario podia borrarla o sustituirla. Se migra una vez.
+    $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [Environment]::GetFolderPath('LocalApplicationData') }
+    $dir  = Join-Path $base 'EmiToolkit'
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    $script:VaultPath     = Join-Path $dir 'vault.dat'
+    $old = Join-Path (Join-Path (Get-EmiRoot) 'Data') 'vault.dat'
+    if (-not (Test-Path -LiteralPath $script:VaultPath) -and (Test-Path -LiteralPath $old)) {
+        try {
+            foreach ($ext in @('', '.bak')) {
+                if (Test-Path -LiteralPath ($old + $ext)) {
+                    Copy-Item -LiteralPath ($old + $ext) -Destination ($script:VaultPath + $ext) -ErrorAction Stop
+                    Rename-Item -LiteralPath ($old + $ext) -NewName ((Split-Path ($old + $ext) -Leaf) + '.migrado') -ErrorAction SilentlyContinue
+                }
+            }
+            Write-EmiLog "Boveda migrada a $dir." Info
+        } catch { Write-EmiLog "No se pudo migrar la boveda antigua: $($_.Exception.Message)" Warn }
+    }
     $script:VaultUnlocked = $false
     $script:VaultEntries  = @()
 
@@ -260,7 +278,7 @@ function Get-EmiVaultEntries {
             Id             = $_.id
             AppName        = $_.appName
             Email          = $_.email
-            MaskedPassword = [char]0x2022 * 12
+            MaskedPassword = ([string][char]0x2022) * 12
             Notes          = $_.notes
             ModifiedText   = if ($_.modifiedUtc) { ([datetime]$_.modifiedUtc).ToString('yyyy-MM-dd HH:mm') } else { '' }
         }
@@ -353,9 +371,12 @@ function New-EmiSecurePassword {
     for ($i = 0; $i -lt $remaining; $i++) {
         $chars[$i] = $charset[(Get-EmiRandomInt $charset.Length)]
     }
-    foreach ($c in $mandatory) {
-        do { $pos = Get-EmiRandomInt $Length } while ($chars[$pos] -ne [char]0)
-        $chars[$pos] = $c
+    for ($i = 0; $i -lt $mandatory.Count; $i++) { $chars[$remaining + $i] = $mandatory[$i] }
+    # Fisher-Yates con el mismo RNG: los obligatorios ya no quedan siempre al
+    # final (antes las ultimas 3-4 posiciones eran siempre mayus/minus/cifra).
+    for ($i = $Length - 1; $i -gt 0; $i--) {
+        $j = Get-EmiRandomInt ($i + 1)
+        $tmp = $chars[$i]; $chars[$i] = $chars[$j]; $chars[$j] = $tmp
     }
     return (-join $chars)
 }

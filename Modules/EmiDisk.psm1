@@ -35,23 +35,23 @@ function Get-EmiCleanupTargets {
     $la = $env:LOCALAPPDATA
     $t = @(
         @{ Id='TempUser';   Name='Archivos temporales del usuario';   Path=$env:TEMP;                                                Safe=$true;  Info='Basura de instaladores y apps' }
-        @{ Id='TempWin';    Name='Temporales de Windows';             Path="$env:SystemRoot\Temp";                                   Safe=$true;  Info='Cache temporal del sistema' }
-        @{ Id='Prefetch';   Name='Prefetch';                          Path="$env:SystemRoot\Prefetch";                               Safe=$true;  Info='Se regenera solo; util si esta corrupto' }
-        @{ Id='WU';         Name='Cache de Windows Update';           Path="$env:SystemRoot\SoftwareDistribution\Download";          Safe=$true;  Info='Instaladores ya aplicados'; NeedsService='wuauserv' }
-        @{ Id='DO';         Name='Cache de Delivery Optimization';    Path="$env:SystemRoot\SoftwareDistribution\DeliveryOptimization"; Safe=$true; Info='Trozos de actualizaciones P2P' }
+        @{ Id='TempWin';    Name='Temporales de Windows';             Path="$env:SystemRoot\Temp";                                   Safe=$true;  OlderThanDays=7; Info='Solo archivos de mas de 7 dias (un instalador en marcha los usa)' }
+        @{ Id='Prefetch';   Name='Prefetch';                          Path="$env:SystemRoot\Prefetch";                               Safe=$false; Info='No acelera nada: Windows lo usa para abrir antes las apps y el proximo arranque ira mas lento' }
+        @{ Id='WU';         Name='Cache de Windows Update';           Path="$env:SystemRoot\SoftwareDistribution\Download";          Safe=$true;  OlderThanDays=7; Info='Solo descargas de mas de 7 dias; se omite si hay un reinicio pendiente'; NeedsService='wuauserv' }
+        @{ Id='DO';         Name='Cache de Delivery Optimization';    Path="$env:SystemRoot\ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache"; Safe=$true; Info='Trozos de actualizaciones P2P (se borra con el cmdlet de Windows)' }
         @{ Id='CrashDumps'; Name='Volcados de memoria y errores';     Path="$la\CrashDumps";                                         Safe=$true;  Info='Dumps de aplicaciones caidas' }
         @{ Id='WER';        Name='Informes de errores de Windows';    Path="$env:ProgramData\Microsoft\Windows\WER";                 Safe=$true;  Info='Reportes que se envian a Microsoft' }
         @{ Id='Thumbs';     Name='Cache de miniaturas e iconos';      Path="$la\Microsoft\Windows\Explorer";  Filter='*cache*.db';   Safe=$true;  Info='Se regenera solo' }
-        @{ Id='Recycle';    Name='Papelera de reciclaje';             Path='__RECYCLE__';                                            Safe=$true;  Info='Vacia la papelera de todos los discos' }
-        @{ Id='Logs';       Name='Registros (.log) de Windows';       Path="$env:SystemRoot\Logs";                                   Safe=$true;  Info='Historial de instalacion y CBS' }
-        @{ Id='Panther';    Name='Restos de instalacion (Panther)';   Path="$env:SystemRoot\Panther";                                Safe=$true;  Info='Logs de setup de Windows' }
+        @{ Id='Recycle';    Name='Papelera de reciclaje';             Path='__RECYCLE__';                                            Safe=$false; Info='Borra PARA SIEMPRE lo que hay en la papelera de todos los discos' }
+        @{ Id='Logs';       Name='Registros (.log) de Windows';       Path="$env:SystemRoot\Logs";                                   Safe=$false; Info='CBS, DISM y SetupDiag: hacen falta para diagnosticar una actualizacion fallida' }
+        @{ Id='Panther';    Name='Restos de instalacion (Panther)';   Path="$env:SystemRoot\Panther";                                Safe=$false; Info='Logs de setup de Windows: hacen falta para diagnosticar una actualizacion fallida' }
         @{ Id='Chrome';     Name='Cache de Google Chrome';            Path="$la\Google\Chrome\User Data\Default\Cache";              Safe=$true;  Info='No borra contrasenas ni sesiones' }
         @{ Id='Edge';       Name='Cache de Microsoft Edge';           Path="$la\Microsoft\Edge\User Data\Default\Cache";             Safe=$true;  Info='No borra contrasenas ni sesiones' }
         @{ Id='Zen';        Name='Cache de Zen Browser';              Path="$la\zen\Profiles";  Filter='cache2'; IsProfileCache=$true; Safe=$true; Info='No borra contrasenas ni sesiones' }
         @{ Id='Firefox';    Name='Cache de Firefox';                  Path="$la\Mozilla\Firefox\Profiles"; Filter='cache2'; IsProfileCache=$true; Safe=$true; Info='No borra contrasenas ni sesiones' }
         @{ Id='Teams';      Name='Cache de Microsoft Teams';          Path="$la\Packages\MSTeams_8wekyb3d8bbwe\LocalCache";          Safe=$false; Info='Cierra Teams antes' }
-        @{ Id='NvCache';    Name='Cache de shaders NVIDIA / DirectX'; Path="$la\NVIDIA\DXCache";                                     Safe=$true;  Info='Se regenera al jugar' }
-        @{ Id='DxCache';    Name='Cache de shaders D3D';              Path="$la\D3DSCache";                                          Safe=$true;  Info='Se regenera solo' }
+        @{ Id='NvCache';    Name='Cache de shaders NVIDIA / DirectX'; Path="$la\NVIDIA\DXCache";                                     Safe=$false; Info='Los juegos daran tirones mientras se vuelven a compilar' }
+        @{ Id='DxCache';    Name='Cache de shaders D3D';              Path="$la\D3DSCache";                                          Safe=$false; Info='Los juegos daran tirones mientras se vuelven a compilar' }
         @{ Id='Downloads';  Name='Carpeta Descargas (revisar antes)'; Path="$u\Downloads";                                           Safe=$false; Info='OJO: son archivos del usuario' }
         @{ Id='WinOld';     Name='Windows.old (Windows anterior)';    Path="$env:SystemDrive\Windows.old";                           Safe=$false; Info='Elimina la opcion de volver a la version previa' }
     )
@@ -129,11 +129,10 @@ function Clear-EmiPath {
     $freed  = 0
 
     try {
-        Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
-            try { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop }
-            catch { }   # archivos en uso: se ignoran
-        }
-        if ($DeleteRoot) { Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue }
+        # Sin seguir uniones ni enlaces (Temp y Windows\Temp los puede crear
+        # cualquier usuario): ver Remove-EmiTreeSafe en EmiCore.
+        Remove-EmiTreeSafe -Path $Path -ContentsOnly   # archivos en uso: se saltan
+        if ($DeleteRoot) { try { Remove-EmiTreeSafe -Path $Path } catch { } }
 
         $after = if (Test-Path -LiteralPath $Path) { Get-EmiFolderSize $Path } else { 0 }
         $freed = [math]::Max(0, $before - $after)
@@ -141,6 +140,64 @@ function Clear-EmiPath {
     catch { Write-EmiLog "Limpieza de '$Path': $($_.Exception.Message)" Warn }
 
     return $freed
+}
+
+function Test-EmiOlderThan {
+    <#  Cierto si el elemento lleva mas de $Days dias sin crearse ni
+        modificarse (lo mismo que hace cleanmgr con los temporales).  #>
+    param([Parameter(Mandatory)] $Item, [int] $Days = 7, [datetime] $Now = (Get-Date))
+    $limit = $Now.AddDays(-$Days)
+    return ($Item.LastWriteTime -lt $limit -and $Item.CreationTime -lt $limit)
+}
+
+function Clear-EmiOldFiles {
+    <#  Borra solo los archivos de mas de $Days dias dentro de $Path y luego
+        las subcarpetas que hayan quedado vacias. Recorre a mano, sin
+        -Recurse, y no entra en uniones ni enlaces simbolicos (Windows
+        PowerShell 5.1 los sigue con -Recurse). Devuelve bytes liberados.  #>
+    param([Parameter(Mandatory)][string] $Path, [int] $Days = 7)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return 0 }
+    $now   = Get-Date
+    $freed = [long]0
+    $dirs  = New-Object System.Collections.ArrayList
+    $stack = New-Object System.Collections.Stack
+    $stack.Push((New-Object IO.DirectoryInfo $Path))
+
+    while ($stack.Count -gt 0) {
+        $d = $stack.Pop()
+        $children = @()
+        try { $children = @($d.GetFileSystemInfos()) } catch { continue }
+        foreach ($c in $children) {
+            if ($c.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+            if ($c -is [IO.DirectoryInfo]) { [void]$dirs.Add($c); $stack.Push($c); continue }
+            if (-not (Test-EmiOlderThan -Item $c -Days $Days -Now $now)) { continue }
+            $len = $c.Length
+            try { Remove-Item -LiteralPath $c.FullName -Force -ErrorAction Stop; $freed += $len }
+            catch { }   # en uso: se deja
+        }
+    }
+    # Subcarpetas vacias, de la mas profunda a la mas alta (nunca la raiz).
+    for ($i = $dirs.Count - 1; $i -ge 0; $i--) {
+        $d = $dirs[$i]
+        try {
+            $d.Refresh()
+            if ($d.Exists -and @($d.GetFileSystemInfos()).Count -eq 0 -and $d.CreationTime -lt $now.AddDays(-$Days)) { $d.Delete() }
+        } catch { }
+    }
+    return $freed
+}
+
+function Test-EmiRebootPending {
+    <#  Windows Update o el servicio de componentes esperan un reinicio. Borrar
+        su cache en ese estado obliga a descargar otra vez o deja la
+        actualizacion a medias.  #>
+    $keys = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired',
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending'
+    )
+    foreach ($k in $keys) { if (Test-Path -LiteralPath $k) { return $true } }
+    return $false
 }
 
 function Invoke-EmiCleanup {
@@ -165,16 +222,41 @@ function Invoke-EmiCleanup {
                     Write-EmiLog "Papelera vaciada ($(Format-EmiSize $sz))" Ok
                 }
                 'WU' {
+                    if (Test-EmiRebootPending) {
+                        Write-EmiLog 'Cache de Windows Update omitida: hay un reinicio pendiente. Reinicia y vuelve a limpiar.' Warn
+                        break
+                    }
                     $svc = Get-Service wuauserv -ErrorAction SilentlyContinue
                     $wasRunning = ($svc -and $svc.Status -eq 'Running')
                     if ($wasRunning) { Stop-Service wuauserv -Force -ErrorAction SilentlyContinue }
                     try {
-                        $f = Clear-EmiPath $t.Path
+                        $f = Clear-EmiOldFiles -Path $t.Path -Days $t.OlderThanDays
                     } finally {
                         if ($wasRunning) { Start-Service wuauserv -ErrorAction SilentlyContinue }
                     }
                     $freed += $f
-                    Write-EmiLog "Cache de Windows Update: $(Format-EmiSize $f)" Ok
+                    Write-EmiLog "Cache de Windows Update (mas de $($t.OlderThanDays) dias): $(Format-EmiSize $f)" Ok
+                }
+                'TempWin' {
+                    $f = Clear-EmiOldFiles -Path $t.Path -Days $t.OlderThanDays
+                    $freed += $f
+                    Write-EmiLog "$($t.Name) (mas de $($t.OlderThanDays) dias): $(Format-EmiSize $f)" Ok
+                }
+                'DO' {
+                    $before = Get-EmiFolderSize $t.Path
+                    if (Get-Command Delete-DeliveryOptimizationCache -ErrorAction SilentlyContinue) {
+                        # El cmdlet de Windows sabe donde esta la cache y respeta al
+                        # servicio DoSvc, que sigue en marcha.
+                        try { Delete-DeliveryOptimizationCache -Force -ErrorAction Stop }
+                        catch { Write-EmiLog "Delivery Optimization: $($_.Exception.Message)" Warn }
+                        $after = Get-EmiFolderSize $t.Path
+                        $f = [math]::Max(0, $before - $after)
+                    } else {
+                        $f = Clear-EmiPath $t.Path
+                        $f += Clear-EmiPath "$env:SystemRoot\SoftwareDistribution\DeliveryOptimization"
+                    }
+                    $freed += $f
+                    Write-EmiLog "$($t.Name): $(Format-EmiSize $f)" Ok
                 }
                 'Thumbs' {
                     $f = 0
@@ -305,22 +387,112 @@ function Find-EmiLargeFolders {
     return $sorted
 }
 
+function Get-EmiRecycleRefusal {
+    <#  Logica pura: por que un elemento NO puede ir a la papelera, o $null
+        si cabe. Si no cabe o la unidad no tiene papelera, el shell lo borra
+        para siempre sin avisar (con OnlyErrorDialogs), asi que se rechaza.  #>
+    param(
+        [bool]   $IsUnc,
+        [string] $DriveType,          # Fixed, Removable, Network, CDRom, Ram...
+        [long]   $SizeBytes,
+        [long]   $MaxCapacityMB = -1, # -1 = desconocido
+        [int]    $NukeOnDelete = 0,
+        [long]   $VolumeBytes = 0
+    )
+    if ($IsUnc -or $DriveType -eq 'Network') { return 'esta en una unidad de red, que no tiene papelera' }
+    if ($DriveType -ne 'Fixed') { return 'esta en una unidad extraible o sin papelera (USB, tarjeta...)' }
+    if ($NukeOnDelete -eq 1) { return 'la papelera de esa unidad esta configurada para borrar sin guardar' }
+    $cap = if ($MaxCapacityMB -ge 0) { $MaxCapacityMB * 1MB } elseif ($VolumeBytes -gt 0) { [long]($VolumeBytes * 0.05) } else { -1 }
+    if ($cap -ge 0 -and $SizeBytes -gt $cap) {
+        return "ocupa $(Format-EmiSize $SizeBytes) y la papelera de esa unidad admite $(Format-EmiSize $cap)"
+    }
+    return $null
+}
+
+function Get-EmiRecycleInfo {
+    <#  Reune los datos de la unidad de $Path para Get-EmiRecycleRefusal.  #>
+    param([string] $Path)
+    $root  = [IO.Path]::GetPathRoot($Path)
+    $info  = @{ IsUnc = $root.StartsWith('\\'); DriveType = 'Unknown'; MaxCapacityMB = -1; NukeOnDelete = 0; VolumeBytes = 0 }
+    if ($info.IsUnc) { return $info }
+    try { $di = New-Object IO.DriveInfo $root; $info.DriveType = "$($di.DriveType)"; $info.VolumeBytes = $di.TotalSize } catch { }
+    try {
+        $letter = $root.TrimEnd('\')
+        $vol = Get-CimInstance Win32_Volume -Filter "DriveLetter='$letter'" -ErrorAction Stop | Select-Object -First 1
+        if ($vol -and $vol.DeviceID -match '(\{[0-9A-Fa-f-]+\})') {
+            $k = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume\$($Matches[1])"
+            $p = Get-ItemProperty -LiteralPath $k -ErrorAction SilentlyContinue
+            if ($p -and $null -ne $p.MaxCapacity)  { $info.MaxCapacityMB = [long]$p.MaxCapacity }
+            if ($p -and $null -ne $p.NukeOnDelete) { $info.NukeOnDelete  = [int]$p.NukeOnDelete }
+        }
+    } catch { }
+    return $info
+}
+
 function Remove-EmiFilesToRecycleBin {
-    <#  Envia archivos a la papelera (reversible) en vez de borrarlos. #>
+    <#  Envia archivos o carpetas a la papelera (reversible). Rechaza lo que
+        el shell borraria para siempre: unidades sin papelera y elementos
+        mas grandes que su cuota. Si aun asi Windows no puede reciclarlo,
+        SHFileOperation con FOF_WANTNUKEWARNING pregunta antes de borrar.  #>
     param([string[]] $Paths)
 
-    Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction SilentlyContinue
+    if (-not ('EmiRecycle' -as [type])) {
+        try {
+            Add-Type -Language CSharp -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class EmiRecycle
+{
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct SHFILEOPSTRUCT
+    {
+        public IntPtr hwnd; public uint wFunc;
+        [MarshalAs(UnmanagedType.LPWStr)] public string pFrom;
+        [MarshalAs(UnmanagedType.LPWStr)] public string pTo;
+        public ushort fFlags; public bool fAnyOperationsAborted;
+        public IntPtr hNameMappings;
+        [MarshalAs(UnmanagedType.LPWStr)] public string lpszProgressTitle;
+    }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    static extern int SHFileOperation(ref SHFILEOPSTRUCT op);
+    const uint FO_DELETE = 3;
+    const ushort FOF_SILENT = 0x4, FOF_NOCONFIRMATION = 0x10, FOF_ALLOWUNDO = 0x40, FOF_NOERRORUI = 0x400, FOF_WANTNUKEWARNING = 0x4000;
+    // 0 = enviado; 1 = el usuario cancelo; otro = codigo de error del shell.
+    public static int ToRecycleBin(string path)
+    {
+        SHFILEOPSTRUCT op = new SHFILEOPSTRUCT();
+        op.wFunc = FO_DELETE;
+        op.pFrom = path + "\0\0";
+        op.fFlags = (ushort)(FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING);
+        int r = SHFileOperation(ref op);
+        if (r == 0 && op.fAnyOperationsAborted) return 1;
+        return r;
+    }
+}
+'@ -ErrorAction Stop
+        } catch { Write-EmiLog "No se pudo preparar la papelera: $($_.Exception.Message)" Warn; return 0 }
+    }
+
     $freed = 0
     foreach ($p in $Paths) {
         try {
             if (-not (Test-Path -LiteralPath $p)) { continue }
-            $sz = (Get-Item -LiteralPath $p -Force).Length
-            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile(
-                $p,
-                [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
-                [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin)
-            $freed += $sz
-            Write-EmiLog "A la papelera: $p" Ok
+            $item = Get-Item -LiteralPath $p -Force
+            $sz = if ($item.PSIsContainer) { Get-EmiFolderSize $p } else { $item.Length }
+            $ri = Get-EmiRecycleInfo -Path $item.FullName
+            $why = Get-EmiRecycleRefusal -IsUnc $ri.IsUnc -DriveType $ri.DriveType -SizeBytes $sz `
+                       -MaxCapacityMB $ri.MaxCapacityMB -NukeOnDelete $ri.NukeOnDelete -VolumeBytes $ri.VolumeBytes
+            if ($why) {
+                Write-EmiLog "No se envia a la papelera '$p': $why. Se borraria para siempre; si de verdad quieres borrarlo, hazlo desde el Explorador." Warn
+                continue
+            }
+            $r = [EmiRecycle]::ToRecycleBin($item.FullName)
+            if ($r -eq 0 -and -not (Test-Path -LiteralPath $p)) {
+                $freed += $sz
+                Write-EmiLog "A la papelera: $p" Ok
+            }
+            elseif ($r -eq 1) { Write-EmiLog "Cancelado, no se borra: $p" Warn }
+            else { Write-EmiLog "No se pudo mover '$p' (codigo $r)." Warn }
         }
         catch { Write-EmiLog "No se pudo mover '$p': $($_.Exception.Message)" Warn }
     }

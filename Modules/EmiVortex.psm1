@@ -252,7 +252,7 @@ function Remove-EmiVortexMods {
             $stateDir = Join-Path $info.AppDataPath 'state.v2'
             if (Test-Path -LiteralPath $stateDir) {
                 Add-EmiJournalEntry @{ Kind='File'; Path=$stateDir; Backup=$null; Module='Vortex' }
-                Remove-Item -LiteralPath $stateDir -Recurse -Force -ErrorAction SilentlyContinue
+                try { Remove-EmiTreeSafe -Path $stateDir } catch { }
                 Write-EmiLog 'Base de datos state.v2 eliminada.' Ok
                 $n++
             }
@@ -279,7 +279,7 @@ function Remove-EmiVortexMods {
         # Eliminar carpeta del mod en staging
         Add-EmiJournalEntry @{ Kind='File'; Path=$modPath; Backup=$null; Module='Vortex' }
         try {
-            Remove-Item -LiteralPath $modPath -Recurse -Force -ErrorAction Stop
+            Remove-EmiTreeSafe -Path $modPath
             $msg = 'Mod eliminado: ' + $modName + ' (' + $gameId + ') - ' + $purged + ' enlaces purgados'
             Write-EmiLog $msg Ok
             $n++
@@ -332,11 +332,10 @@ function Remove-EmiVortexFull {
                         $removed = 0
                         foreach ($f in $manifest.files) {
                             if ($f.relPath) {
-                                $targetPath = $f.relPath
-                                # Si es ruta relativa al directorio del juego, construir ruta absoluta
+                                # Ruta relativa a la carpeta del juego, sin salir de ella
                                 $gameDir = Split-Path $mp -Parent
-                                $fullTarget = Join-Path $gameDir $targetPath
-                                if (Test-Path -LiteralPath $fullTarget) {
+                                $fullTarget = _Resolve-EmiVortexTarget -GameDir $gameDir -RelPath ([string]$f.relPath)
+                                if ($fullTarget -and (Test-Path -LiteralPath $fullTarget)) {
                                     if (_Test-EmiVortexHardlink -FilePath $fullTarget) {
                                         try {
                                             Remove-Item -LiteralPath $fullTarget -Force -ErrorAction Stop
@@ -365,7 +364,7 @@ function Remove-EmiVortexFull {
 
     Add-EmiJournalEntry @{ Kind='File'; Path=$info.AppDataPath; Backup=$null; Module='Vortex' }
     try {
-        Remove-Item -LiteralPath $info.AppDataPath -Recurse -Force -ErrorAction Stop
+        Remove-EmiTreeSafe -Path $info.AppDataPath
         Write-EmiLog 'Datos de Vortex eliminados.' Ok
     }
     catch { Write-EmiLog "No se pudo eliminar AppData: $($_.Exception.Message)" Warn }
@@ -375,21 +374,8 @@ function Remove-EmiVortexFull {
     Set-EmiStatus "Paso $current/$steps : Desinstalando Vortex..." ([int](($current / $steps) * 100))
 
     if ($info.InstallPath) {
-        $uninstaller = Join-Path $info.InstallPath 'Uninstall Vortex.exe'
-        if (Test-Path -LiteralPath $uninstaller) {
-            Write-EmiLog 'Ejecutando desinstalador de Vortex...' Step
-            try {
-                $proc = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
-                if ($proc -and $proc.ExitCode -eq 0) {
-                    Write-EmiLog 'Vortex desinstalado correctamente.' Ok
-                } else {
-                    Write-EmiLog "Desinstalador devolvio codigo $($proc.ExitCode)." Warn
-                }
-            }
-            catch { Write-EmiLog "Error ejecutando desinstalador: $($_.Exception.Message)" Warn }
-        } else {
-            Write-EmiLog 'Desinstalador no encontrado; se omite.' Warn
-        }
+        Write-EmiLog 'Ejecutando desinstalador de Vortex...' Step
+        [void](_Invoke-EmiVortexUninstaller $info)
     }
 
     # Paso 4: Limpiar registro
@@ -408,7 +394,7 @@ function Remove-EmiVortexFull {
             Add-EmiJournalEntry @{ Kind='Registry'; Path=$rk; Name='(clave completa)'; Existed=$true; OldValue=$null; OldType='String'; NewValue=$null; Module='Vortex' }
             try {
                 Remove-Item -LiteralPath $rk -Recurse -Force -ErrorAction Stop
-                Write-EmLog "Clave eliminada: $rk" Ok
+                Write-EmiLog "Clave eliminada: $rk" Ok
             }
             catch { Write-EmiLog "No se pudo eliminar $rk : $($_.Exception.Message)" Warn }
         }
@@ -443,6 +429,64 @@ function Remove-EmiVortexFull {
 }
 
 # ======================== Helpers internos ============================
+
+function _Invoke-EmiVortexUninstaller {
+    <#  Desinstala Vortex sin ejecutar como administrador nada que pueda
+        haber puesto el usuario. La entrada de ...\Uninstall se busca por
+        DisplayName y Publisher exactos; la de HKCU o un desinstalador en
+        %LOCALAPPDATA% (instalacion por usuario) se lanzan sin privilegios.
+        En HKLM, solo elevado si esta en Program Files y la firma es valida. #>
+    param($Info)
+    $entry = @(Find-EmiUninstallEntry -DisplayName 'Vortex' -Publisher @('Black Tree Gaming Ltd.', 'Black Tree Gaming Ltd')) | Select-Object -First 1
+    if (-not $entry -and $Info.InstallPath) {
+        $exe = Join-Path $Info.InstallPath 'Uninstall Vortex.exe'
+        if (Test-Path -LiteralPath $exe -PathType Leaf) {
+            $entry = [pscustomobject]@{
+                DisplayName = 'Vortex'; QuietUninstallString = $null
+                UninstallString = '"' + $exe + '" /S'
+                EmiUserHive = -not (Test-EmiTrustedLocation $exe)
+            }
+        }
+    }
+    if (-not $entry) { Write-EmiLog 'Desinstalador de Vortex no encontrado; se omite.' Warn; return $false }
+    try {
+        $code = Invoke-EmiSafeUninstall -Entry $entry
+        if ($code -eq 0) { Write-EmiLog 'Vortex desinstalado correctamente.' Ok; return $true }
+        Write-EmiLog "Desinstalador devolvio codigo $code." Warn
+    } catch { Write-EmiLog "Desinstalador de Vortex: $($_.Exception.Message)" Warn }
+    return $false
+}
+
+function _Resolve-EmiVortexTarget {
+    <#  Ruta absoluta de un relPath de vortex.deployment.json, o $null si se
+        sale de la carpeta del juego. Join-Path no normaliza: con
+        '..\..\..\ProgramData\x' se borraria (como administrador) fuera del juego. #>
+    param([string] $GameDir, [string] $RelPath)
+    if (-not $GameDir -or -not $RelPath) { return $null }
+    if ([IO.Path]::IsPathRooted($RelPath) -or $RelPath -match '^[\\/]|:' ) {
+        Write-EmiLog "Manifiesto de Vortex: ruta absoluta rechazada ($RelPath)." Warn; return $null
+    }
+    if (($RelPath -split '[\\/]') -contains '..') {
+        Write-EmiLog "Manifiesto de Vortex: ruta con '..' rechazada ($RelPath)." Warn; return $null
+    }
+    try {
+        $base = [IO.Path]::GetFullPath($GameDir).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+        $full = [IO.Path]::GetFullPath([IO.Path]::Combine($base, $RelPath))
+    } catch { return $null }
+    if (-not $full.StartsWith($base + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        Write-EmiLog "Manifiesto de Vortex: $RelPath queda fuera de $base; no se borra." Warn; return $null
+    }
+    # Ninguna carpeta intermedia puede ser una union o enlace (llevaria fuera)
+    $cur = Split-Path $full -Parent
+    while ($cur -and $cur.Length -gt $base.Length) {
+        $it = Get-Item -LiteralPath $cur -Force -ErrorAction SilentlyContinue
+        if ($it -and ($it.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            Write-EmiLog "Manifiesto de Vortex: $RelPath pasa por un enlace ($cur); no se borra." Warn; return $null
+        }
+        $cur = Split-Path $cur -Parent
+    }
+    return $full
+}
 
 function _Get-EmiVortexManifestPaths {
     <#  Devuelve rutas posibles de vortex.deployment.json para un gameId. #>
@@ -540,7 +584,7 @@ function _Purge-EmiVortexDeployedFiles {
 
             foreach ($f in $manifest.files) {
                 if ($f.source -and $f.source -like "*$ModName*") {
-                    $targetPath = if ($f.relPath) { Join-Path $gameDir $f.relPath } else { $null }
+                    $targetPath = if ($f.relPath) { _Resolve-EmiVortexTarget -GameDir $gameDir -RelPath ([string]$f.relPath) } else { $null }
                     if ($targetPath -and (Test-Path -LiteralPath $targetPath)) {
                         if (_Test-EmiVortexHardlink -FilePath $targetPath) {
                             try {
@@ -607,10 +651,9 @@ function Remove-EmiVortexSkyrimFull {
                             $removed = 0
                             foreach ($f in $manifest.files) {
                                 if ($f.relPath) {
-                                    $targetPath = $f.relPath
                                     $gameDir = Split-Path $mp -Parent
-                                    $fullTarget = Join-Path $gameDir $targetPath
-                                    if (Test-Path -LiteralPath $fullTarget) {
+                                    $fullTarget = _Resolve-EmiVortexTarget -GameDir $gameDir -RelPath ([string]$f.relPath)
+                                    if ($fullTarget -and (Test-Path -LiteralPath $fullTarget)) {
                                         if (_Test-EmiVortexHardlink -FilePath $fullTarget) {
                                             try {
                                                 Remove-Item -LiteralPath $fullTarget -Force -ErrorAction Stop
@@ -636,24 +679,14 @@ function Remove-EmiVortexSkyrimFull {
         Write-EmiLog '=== Paso 2/6: Eliminando datos de Vortex ===' Step
         Add-EmiJournalEntry @{ Kind='File'; Path=$info.AppDataPath; Backup=$null; Module='Vortex' }
         try {
-            Remove-Item -LiteralPath $info.AppDataPath -Recurse -Force -ErrorAction Stop
+            Remove-EmiTreeSafe -Path $info.AppDataPath
             Write-EmiLog 'Datos de Vortex eliminados.' Ok
         } catch { Write-EmiLog "No se pudo eliminar AppData: $($_.Exception.Message)" Warn }
 
         # Paso 3: Ejecutar desinstalador silencioso
         Write-EmiLog '=== Paso 3/6: Desinstalando Vortex ===' Step
         if ($info.InstallPath) {
-            $uninstaller = Join-Path $info.InstallPath 'Uninstall Vortex.exe'
-            if (Test-Path -LiteralPath $uninstaller) {
-                try {
-                    $proc = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
-                    if ($proc -and $proc.ExitCode -eq 0) {
-                        Write-EmiLog 'Vortex desinstalado correctamente.' Ok
-                    } else {
-                        Write-EmiLog "Desinstalador devolvio codigo $($proc.ExitCode)." Warn
-                    }
-                } catch { Write-EmiLog "Error ejecutando desinstalador: $($_.Exception.Message)" Warn }
-            }
+            [void](_Invoke-EmiVortexUninstaller $info)
         }
 
         # Paso 4: Limpiar registro
@@ -669,7 +702,7 @@ function Remove-EmiVortexSkyrimFull {
                 Add-EmiJournalEntry @{ Kind='Registry'; Path=$rk; Name='(clave completa)'; Existed=$true; OldValue=$null; OldType='String'; NewValue=$null; Module='Vortex' }
                 try {
                     Remove-Item -LiteralPath $rk -Recurse -Force -ErrorAction Stop
-                    Write-Log "Clave eliminada: $rk" Ok
+                    Write-EmiLog "Clave eliminada: $rk" Ok
                 } catch { Write-EmiLog "No se pudo eliminar $rk : $($_.Exception.Message)" Warn }
             }
         }
@@ -767,7 +800,7 @@ function Remove-EmiVortexSkyrimFull {
                 if (Test-Path -LiteralPath $folder) {
                     Add-EmiJournalEntry @{ Kind='File'; Path=$folder; Backup=$null; Module='Vortex' }
                     try {
-                        Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction Stop
+                        Remove-EmiTreeSafe -Path $folder
                         Write-EmiLog "Carpeta eliminada: $folder" Ok
                     } catch {
                         Write-EmiLog "Error eliminando $folder : $($_.Exception.Message)" Warn
@@ -792,7 +825,7 @@ function Remove-EmiVortexSkyrimFull {
                 if (Test-Path -LiteralPath $file) {
                     Add-EmiJournalEntry @{ Kind='File'; Path=$file; Backup=$null; Module='Vortex' }
                     try {
-                        Remove-Item -LiteralPath $file -Recurse -Force -ErrorAction Stop
+                        Remove-EmiTreeSafe -Path $file
                         Write-EmiLog "Archivo eliminado: $file" Ok
                     } catch {
                         Write-EmiLog "Error eliminando $file : $($_.Exception.Message)" Warn
@@ -816,6 +849,9 @@ function Remove-EmiVortexSkyrimFull {
     # Paso 6: Limpiar documentos de usuario y AppData relacionados con Skyrim
     Write-EmiLog '=== Paso 6/6: Limpiando archivos de usuario ===' Step
 
+    # $env:DOCUMENTS no existe en Windows: Join-Path $null fallaba y el paso
+    # entero no borraba nada. La carpeta real (puede estar en OneDrive):
+    $docs = [Environment]::GetFolderPath('MyDocuments')
     $userPaths = @(
         (Join-Path $env:LOCALAPPDATA 'Skyrim'),
         (Join-Path $env:LOCALAPPDATA 'Skyrim Special Edition'),
@@ -823,16 +859,16 @@ function Remove-EmiVortexSkyrimFull {
         (Join-Path $env:APPDATA 'Skyrim'),
         (Join-Path $env:APPDATA 'Skyrim Special Edition'),
         (Join-Path $env:APPDATA 'Skyrim Special Edition VR'),
-        (Join-Path $env:DOCUMENTS 'My Games\Skyrim'),
-        (Join-Path $env:DOCUMENTS 'My Games\Skyrim Special Edition'),
-        (Join-Path $env:DOCUMENTS 'My Games\Skyrim Special Edition VR')
+        (Join-Path $docs 'My Games\Skyrim'),
+        (Join-Path $docs 'My Games\Skyrim Special Edition'),
+        (Join-Path $docs 'My Games\Skyrim Special Edition VR')
     )
 
     foreach ($path in $userPaths) {
         if (Test-Path -LiteralPath $path) {
             Add-EmiJournalEntry @{ Kind='File'; Path=$path; Backup=$null; Module='Vortex' }
             try {
-                Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+                Remove-EmiTreeSafe -Path $path
                 Write-EmiLog "Carpeta de usuario eliminada: $path" Ok
             } catch {
                 Write-EmiLog "Error eliminando $path : $($_.Exception.Message)" Warn
@@ -852,7 +888,7 @@ function Remove-EmiVortexSkyrimFull {
         if (Test-Path -LiteralPath $residual) {
             Add-EmiJournalEntry @{ Kind='File'; Path=$residual; Backup=$null; Module='Vortex' }
             try {
-                Remove-Item -LiteralPath $residual -Recurse -Force -ErrorAction Stop
+                Remove-EmiTreeSafe -Path $residual
                 Write-EmiLog "Residuo de Vortex eliminado: $residual" Ok
             } catch {
                 Write-EmiLog "Error eliminando residuo: ($($_.Exception.Message))" Warn

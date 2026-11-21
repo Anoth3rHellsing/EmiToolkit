@@ -14,15 +14,16 @@ function Get-EmiPrivacyItems {
         [pscustomobject]@{ Id='Speech';     Name='Desactivar reconocimiento de voz en linea';Info='Sin envio de audio a Microsoft';                        Recommended=$true }
         [pscustomobject]@{ Id='InkTyping';  Name='Desactivar datos de escritura y entintado';Info='Sin envio de lo que escribes';                          Recommended=$true }
         [pscustomobject]@{ Id='AppDiag';    Name='Bloquear diagnostico entre aplicaciones';  Info='Las apps no ven que hacen otras apps';                  Recommended=$true }
+        [pscustomobject]@{ Id='AppAccountInfo'; Name='Impedir que las apps lean tu cuenta';  Info='Nombre, foto y cuenta; OJO: apps que entran con tu cuenta de Microsoft pueden pedirla otra vez'; Recommended=$false }
+        [pscustomobject]@{ Id='AppSyncDevices'; Name='Impedir que las apps hablen con dispositivos no emparejados'; Info='OJO: corta relojes y pulseras, Enlace Movil y apps de accesorios de la Store'; Recommended=$false }
         [pscustomobject]@{ Id='WER';        Name='Desactivar informes de errores';           Info='AVISO: oculta info de crashes a admins IT';              Recommended=$false }
         [pscustomobject]@{ Id='CEIPTasks';  Name='Desactivar tareas de telemetria';          Info='Appraiser, Consolidator, UsbCeip, DmClient';            Recommended=$true }
         [pscustomobject]@{ Id='EdgeTel';    Name='Quitar telemetria de Microsoft Edge';      Info='Sin metricas, sin sugerencias, sin busqueda enviada';   Recommended=$true }
         [pscustomobject]@{ Id='CloudSearch';Name='Quitar contenido en la nube de la busqueda';Info='La busqueda no consulta a Microsoft';                  Recommended=$true }
         [pscustomobject]@{ Id='DeliveryOpt';Name='Delivery Optimization solo en LAN';        Info='Tu ancho de banda deja de servir a Internet';           Recommended=$true }
-        [pscustomobject]@{ Id='Location';   Name='Desactivar el sensor de ubicacion';        Info='OJO: afecta a Mapas y "Buscar mi dispositivo"';         Recommended=$false }
+        [pscustomobject]@{ Id='Location';   Name='Desactivar el sensor de ubicacion';        Info='OJO: afecta a Mapas, "Buscar mi dispositivo" y la zona horaria automatica';Recommended=$false }
         [pscustomobject]@{ Id='FirewallTel';Name='Bloquear en el firewall los procesos de telemetria';Info='Reglas de salida para DiagTrack y CompatTel';  Recommended=$false }
-        [pscustomobject]@{ Id='HostsBlock'; Name='Bloquear dominios de telemetria (hosts)';  Info='Lista conservadora; reversible desde Revertir';         Recommended=$false }
-        [pscustomobject]@{ Id='InputExperience'; Name='Deshabilitar experiencia de entrada de Windows'; Info='InputService/CXH deja de enviar datos; OJO: afecta sugerencias de escritura'; Recommended=$false }
+        [pscustomobject]@{ Id='HostsBlock'; Name='Bloquear dominios de telemetria (hosts)';  Info='AVISO: Defender lo marca como HostsFileHijack y al quitarlo restablece el hosts entero'; Recommended=$false }
         # --- Telemetria moderna (Copilot, Recall, AI, Edge, WebView2, winget) ---
         [pscustomobject]@{ Id='DisableCopilot';    Name='Desactivar Windows Copilot';              Info='GPO TurnOffWindowsCopilot; la app queda instalada pero inactiva'; Recommended=$true }
         [pscustomobject]@{ Id='DisableRecall';     Name='Desactivar Recall y Snapshots';           Info='Impide captura e indexacion local por IA; sin efecto en PC sin NPU'; Recommended=$true }
@@ -61,12 +62,13 @@ $script:TelemetryHosts = @(
     'statsfe1.ws.microsoft.com'
     'corpext.msitadfs.glbdns2.microsoft.com'
     'compatexchange.cloudapp.net'
-    # --- Dominios modernos (Copilot, Aria, Teams) ---
+    # --- Dominios modernos (Aria, Teams) ---
     # NOTA: self.events.data.microsoft.com y storeedgefd.dsx.mp.microsoft.com
     # excluidos deliberadamente: rompen Microsoft Store y auth M365.
+    # copilot.cloud.microsoft tampoco: no es telemetria, es el propio
+    # servicio de Copilot.
     'browser.pipe.aria.microsoft.com'
     'mobile.pipe.aria.microsoft.com'
-    'copilot.cloud.microsoft'
     'teams.events.data.microsoft.com'
     'diagnostics.support.microsoft.com'
     'feedback.windows.com'
@@ -148,8 +150,16 @@ function Invoke-EmiPrivacyItem {
         'AppDiag' {
             $k = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy'
             if (Set-EmiRegistry $k 'LetAppsGetDiagnosticInfo' 2 DWord $M) { $n++ }
-            if (Set-EmiRegistry $k 'LetAppsAccessAccountInfo' 2 DWord $M) { $n++ }
-            if (Set-EmiRegistry $k 'LetAppsSyncWithDevices' 2 DWord $M) { $n++ }
+        }
+
+        # Antes iban dentro de AppDiag, en modo basico y sin decirlo en la
+        # etiqueta (auditoria de sistema, EmiPrivacy.psm1:148-153).
+        'AppAccountInfo' {
+            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsAccessAccountInfo' 2 DWord $M) { $n++ }
+        }
+
+        'AppSyncDevices' {
+            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsSyncWithDevices' 2 DWord $M) { $n++ }
         }
 
         'WER' {
@@ -228,11 +238,6 @@ function Invoke-EmiPrivacyItem {
             }
         }
 
-        'InputExperience' {
-            if (Set-EmiService -Name 'TextInputManagementService' -StartupType Disabled -Stop -Module $M) { $n++ }
-            $n += Set-EmiRegistry -Path 'HKCU:\Software\Microsoft\InputPersonalization\TrainedDataStore' -Name 'HarvestContacts' -Value 0 -Type DWord -Module 'Privacidad'
-            $n += Set-EmiRegistry -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\HandwritingErrorReports' -Name 'PreventHandwritingErrorReports' -Value 1 -Type DWord -Module 'Privacidad'
-        }
         'HostsBlock' { $n += Add-EmiHostsBlock }
 
         # --- Telemetria moderna (Copilot, Recall, AI, Edge, WebView2, winget, DO) ---
@@ -278,7 +283,7 @@ function Add-EmiHostsBlock {
             return 0
         }
 
-        $backup = Join-Path (Join-Path (Get-EmiRoot) 'Data') 'hosts.backup'
+        $backup = Get-EmiHostsBackupPath   # carpeta de datos protegida (EmiCore)
         Copy-Item -LiteralPath $hosts -Destination $backup -Force
         Add-EmiJournalEntry @{ Kind='File'; Path=$hosts; Backup=$backup; Module='Privacidad' }
 

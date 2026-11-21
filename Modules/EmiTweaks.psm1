@@ -1,6 +1,6 @@
 ﻿# =====================================================================
 #  EmiTweaks.psm1 - Optimizacion de Windows 11
-#  NO toca transparencia ni animaciones (peticion explicita).
+#  Transparencia y animaciones solo como opcionales: nunca en modo basico.
 # =====================================================================
 
 $HKCU_ADV     = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
@@ -19,10 +19,15 @@ function Get-EmiTweaks {
         [pscustomobject]@{ Id='Suggest';    Name='Quitar sugerencias, anuncios y consejos';    Info='Apps sugeridas, contenido destacado, tips';          Recommended=$true }
         [pscustomobject]@{ Id='StartRec';   Name='Vaciar la seccion Recomendado del Inicio';   Info='Sin archivos ni apps recientes en el menu Inicio';   Recommended=$true }
         [pscustomobject]@{ Id='GameDVR';    Name='Desactivar Xbox Game Bar y grabacion';       Info='Quita la captura en segundo plano (mucha RAM)';      Recommended=$true }
-        [pscustomobject]@{ Id='BgApps';     Name='Desactivar apps en segundo plano';           Info='Las apps de la Store dejan de correr ocultas';       Recommended=$true }
+        [pscustomobject]@{ Id='BgApps';     Name='Desactivar apps en segundo plano';           Info='OJO: sin avisos de Enlace Movil, alarmas ni correo de la Store; Windows 11 no tiene interruptor, se revierte desde Revertir'; Recommended=$false }
         [pscustomobject]@{ Id='Context';    Name='Menu contextual clasico (Win10)';            Info='Sin el paso extra de "Mostrar mas opciones"';        Recommended=$true }
         [pscustomobject]@{ Id='Explorer';   Name='Explorador: abrir en Este equipo';           Info='Tambien muestra extensiones de archivo';             Recommended=$true }
-        [pscustomobject]@{ Id='Services';   Name='Desactivar servicios innecesarios';          Info='Fax, RetailDemo, MapsBroker, WalletService, etc.';   Recommended=$true }
+        [pscustomobject]@{ Id='Services';   Name='Desactivar servicios innecesarios';          Info='Fax, RetailDemo, registro remoto; Mapas y Cartera pasan a manual'; Recommended=$true }
+        [pscustomobject]@{ Id='SvcXbox';    Name='Desactivar servicios de Xbox';               Info='OJO: rompe el inicio de sesion de Xbox, Game Pass, partidas en la nube y guardado en la nube'; Recommended=$false }
+        [pscustomobject]@{ Id='SvcHotspot'; Name='Desactivar Conexion compartida (ICS)';       Info='OJO: deja de funcionar la zona con cobertura movil (compartir Internet)'; Recommended=$false }
+        [pscustomobject]@{ Id='SvcParental';Name='Desactivar control parental (WpcMonSvc)';    Info='OJO: rompe Microsoft Family en cuentas infantiles';  Recommended=$false }
+        [pscustomobject]@{ Id='SvcPca';     Name='Asistente de compatibilidad en manual';      Info='OJO: deja de avisar y corregir programas antiguos que fallan'; Recommended=$false }
+        [pscustomobject]@{ Id='SvcDoSvc';   Name='Delivery Optimization en manual';            Info='OJO: Store y Windows Update pueden descargar peor; para cortar el P2P basta "Delivery Optimization solo en LAN" de Privacidad'; Recommended=$false }
         [pscustomobject]@{ Id='Tasks';      Name='Desactivar tareas programadas de rastreo';   Info='CEIP, Compatibility Appraiser, DiskDiagnostic';      Recommended=$true }
         [pscustomobject]@{ Id='NetworkOpt'; Name='Optimizar la pila de red';                   Info='Autotuning normal y sin limitacion de ancho de banda'; Recommended=$true }
         [pscustomobject]@{ Id='PowerPlan';  Name='Plan de energia Alto rendimiento';           Info='Recomendado en equipos de escritorio';               Recommended=$false }
@@ -39,7 +44,7 @@ function Get-EmiTweaks {
         [pscustomobject]@{ Id='DisableTransparency';Name='Desactivar efectos de transparencia';    Info='Mejora rendimiento en equipos modestos';                  Recommended=$false }
         [pscustomobject]@{ Id='DisableAnimations';  Name='Desactivar animaciones de Windows';      Info='AVISO: afecta accesibilidad; mejora respuesta visual';    Recommended=$false }
         [pscustomobject]@{ Id='ForceDarkMode';      Name='Forzar modo oscuro en apps y sistema';   Info='Sobrescribe preferencia de tema claro del usuario';       Recommended=$false }
-        [pscustomobject]@{ Id='HideGalleryNav';     Name='Ocultar Galeria en panel de navegacion'; Info='Limpia el panel izquierdo del Explorador';                Recommended=$true }
+        [pscustomobject]@{ Id='HideGalleryNav';     Name='Ocultar Galeria en panel de navegacion'; Info='Limpia el panel izquierdo del Explorador (Windows 11 23H2+)'; Recommended=$true }
         [pscustomobject]@{ Id='HideHomeFolder';     Name='Ocultar carpeta Inicio en panel nav';    Info='Quita acceso directo a Inicio en Explorador';             Recommended=$true }
         [pscustomobject]@{ Id='HideOneDriveNav';    Name='Ocultar OneDrive en panel de navegacion';Info='Solo oculta el acceso directo; no desinstala OneDrive';   Recommended=$true }
         [pscustomobject]@{ Id='DisableMouseAccel';  Name='Desactivar aceleracion del mouse';       Info='Movimiento lineal 1:1; preferido por gamers';             Recommended=$false }
@@ -47,41 +52,64 @@ function Get-EmiTweaks {
         [pscustomobject]@{ Id='DisableStorageSense';Name='Desactivar Storage Sense automatico';    Info='Impide limpieza automatica de archivos temporales';       Recommended=$false }
         [pscustomobject]@{ Id='DisableBitLockerAuto';Name='Desactivar cifrado automatico BitLocker';Info='Evita cifrado silencioso en dispositivos compatibles';   Recommended=$false }
         [pscustomobject]@{ Id='DisableDragTray';    Name='Desactivar bandeja de arrastre';         Info='Quita el area de compartir archivos al arrastrar';        Recommended=$true }
-        [pscustomobject]@{ Id='DelayUpdates';       Name='Retrasar actualizaciones de calidad 7d'; Info='AVISO: solo calidad, nunca seguridad; puede perder parches';Recommended=$false }
+        [pscustomobject]@{ Id='DelayUpdates';       Name='Retrasar actualizaciones de calidad 7d'; Info='AVISO: las de calidad SON los parches de seguridad mensuales: llegan 7 dias tarde. Solo Pro, Enterprise y Education'; Recommended=$false }
         [pscustomobject]@{ Id='NoAutoRestart';      Name='No reiniciar con usuario activo';        Info='Windows no fuerza reinicio tras update si hay sesion';    Recommended=$true }
         [pscustomobject]@{ Id='DevCliTelemetry';    Name='Desactivar telemetria de CLI dev';       Info='Azure CLI, .NET, Bicep, PowerShell, NuGet; requiere nuevo shell';Recommended=$true }
         [pscustomobject]@{ Id='DisableModernStandbyNet';Name='Red desactivada en Modern Standby';  Info='AVISO: impide notificaciones push en suspension';         Recommended=$false }
     )
 }
 
-# Servicios que se desactivan con la opcion "Services".
+# Servicios de la opcion "Services" (recomendada, modo basico). Solo lo que
+# no rompe nada: los que alguna funcion necesita pasan a Manual (arrancan
+# cuando hacen falta) o a items opcionales con su aviso. Fuera de esta lista
+# (auditoria de sistema, EmiTweaks.psm1:59-84): DoSvc (Store y Windows
+# Update; DO FAQ de Microsoft), SharedAccess (zona movil), los cuatro de Xbox,
+# WpcMonSvc (Microsoft Family), lfsvc y WerSvc (ya los cubren «Ubicacion» e
+# «Informes de errores» de Privacidad, con aviso) y PcaSvc. TabletInputService
+# se quita: no existe en Windows 11 y en Windows 10 rompe el teclado tactil.
 # Nunca se tocan servicios de seguridad, red, audio ni de ESET.
 $script:JunkServices = @(
-    @{ Name='Fax';                 Why='Servicio de fax' }
-    @{ Name='RetailDemo';          Why='Modo demostracion de tienda' }
-    @{ Name='MapsBroker';          Why='Mapas descargados' }
-    @{ Name='WalletService';       Why='Cartera de Microsoft' }
-    @{ Name='PhoneSvc';            Why='Telefonia' }
-    @{ Name='RemoteRegistry';      Why='Registro remoto (riesgo de seguridad)' }
-    @{ Name='RemoteAccess';        Why='Enrutamiento y acceso remoto' }
-    @{ Name='SharedAccess';        Why='Conexion compartida a Internet' }
-    @{ Name='lfsvc';               Why='Servicio de geolocalizacion' }
-    @{ Name='WMPNetworkSvc';       Why='Uso compartido de Windows Media Player' }
-    @{ Name='XblAuthManager';      Why='Xbox Live' }
-    @{ Name='XblGameSave';         Why='Guardado en la nube de Xbox' }
-    @{ Name='XboxNetApiSvc';       Why='Red de Xbox' }
-    @{ Name='XboxGipSvc';          Why='Accesorios de Xbox' }
-    @{ Name='SEMgrSvc';            Why='Pagos NFC' }
-    @{ Name='PcaSvc';              Why='Asistente de compatibilidad de programas' }
-    @{ Name='WerSvc';              Why='Informe de errores de Windows' }
-    @{ Name='DoSvc';               Why='Delivery Optimization (descargas P2P)' }
-    @{ Name='WpcMonSvc';           Why='Control parental' }
-    @{ Name='TabletInputService';  Why='Teclado en pantalla / panel de escritura' }
+    @{ Name='Fax';                 Start='Disabled'; Why='Servicio de fax' }
+    @{ Name='RetailDemo';          Start='Disabled'; Why='Modo demostracion de tienda' }
+    @{ Name='MapsBroker';          Start='Manual';   Why='Mapas descargados' }
+    @{ Name='WalletService';       Start='Manual';   Why='Cartera de Microsoft' }
+    @{ Name='PhoneSvc';            Start='Manual';   Why='Telefonia' }
+    @{ Name='RemoteRegistry';      Start='Disabled'; Why='Registro remoto (riesgo de seguridad)' }
+    @{ Name='RemoteAccess';        Start='Disabled'; Why='Enrutamiento y acceso remoto' }
+    @{ Name='WMPNetworkSvc';       Start='Manual';   Why='Uso compartido de Windows Media Player' }
+    @{ Name='SEMgrSvc';            Start='Manual';   Why='Pagos NFC' }
     # --- Servicios modernos (AI, SQL CEIP) ---
-    @{ Name='SQLTELEMETRY';            Why='SQL Server CEIP Telemetry' }
-    @{ Name='SQLTELEMETRY$SQLEXPRESS'; Why='SQL Express CEIP Telemetry' }
-    @{ Name='WSAIFabricSvc';           Why='Windows AI Fabric Service' }
+    @{ Name='SQLTELEMETRY';            Start='Disabled'; Why='SQL Server CEIP Telemetry' }
+    @{ Name='SQLTELEMETRY$SQLEXPRESS'; Start='Disabled'; Why='SQL Express CEIP Telemetry' }
+    @{ Name='WSAIFabricSvc';           Start='Manual';   Why='Windows AI Fabric Service' }
 )
+
+# Grupos opcionales (nunca en modo basico), cada uno con su aviso en Get-EmiTweaks.
+$script:OptionalServices = @{
+    SvcXbox     = @(
+        @{ Name='XblAuthManager'; Start='Disabled'; Why='Xbox Live' }
+        @{ Name='XblGameSave';    Start='Disabled'; Why='Guardado en la nube de Xbox' }
+        @{ Name='XboxNetApiSvc';  Start='Disabled'; Why='Red de Xbox' }
+        @{ Name='XboxGipSvc';     Start='Disabled'; Why='Accesorios de Xbox' }
+    )
+    SvcHotspot  = @( @{ Name='SharedAccess'; Start='Disabled'; Why='Conexion compartida a Internet' } )
+    SvcParental = @( @{ Name='WpcMonSvc';    Start='Disabled'; Why='Control parental' } )
+    SvcPca      = @( @{ Name='PcaSvc';       Start='Manual';   Why='Asistente de compatibilidad de programas' } )
+    SvcDoSvc    = @( @{ Name='DoSvc';        Start='Manual';   Why='Delivery Optimization (descargas P2P)' } )
+}
+
+function Set-EmiServiceList {
+    param([object[]] $List, [string] $Module)
+    $n = 0
+    foreach ($s in $List) {
+        if (Set-EmiService -Name $s.Name -StartupType $s.Start -Stop -Module $Module) {
+            $verb = if ($s.Start -eq 'Manual') { 'en manual' } else { 'desactivado' }
+            Write-EmiLog "Servicio $($verb): $($s.Name) - $($s.Why)" Ok
+            $n++
+        }
+    }
+    return $n
+}
 
 $script:JunkTasks = @(
     @{ P='\Microsoft\Windows\Application Experience\'; N='Microsoft Compatibility Appraiser' }
@@ -165,8 +193,11 @@ function Invoke-EmiTweak {
         }
 
         'BgApps' {
+            # Solo el ajuste del usuario. La directiva de equipo
+            # LetAppsRunInBackground=2 prohibia el segundo plano a todas las
+            # apps de la Store sin que el usuario pudiera reactivar ninguna
+            # (auditoria de sistema, EmiTweaks.psm1:168-169).
             if (Set-EmiRegistry 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications' 'GlobalUserDisabled' 1 DWord $M) { $n++ }
-            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsRunInBackground' 2 DWord $M) { $n++ }
         }
 
         'Context' {
@@ -185,13 +216,10 @@ function Invoke-EmiTweak {
             if (Set-EmiRegistry $HKCU_ADV 'ShowSyncProviderNotifications' 0 DWord $M) { $n++ }
         }
 
-        'Services' {
-            foreach ($s in $script:JunkServices) {
-                if (Set-EmiService -Name $s.Name -StartupType Disabled -Stop -Module $M) {
-                    Write-EmiLog "Servicio desactivado: $($s.Name) - $($s.Why)" Ok
-                    $n++
-                }
-            }
+        'Services' { $n += Set-EmiServiceList -List $script:JunkServices -Module $M }
+
+        { $_ -in 'SvcXbox', 'SvcHotspot', 'SvcParental', 'SvcPca', 'SvcDoSvc' } {
+            $n += Set-EmiServiceList -List $script:OptionalServices[$_] -Module $M
         }
 
         'Tasks' {
@@ -284,7 +312,9 @@ function Invoke-EmiTweak {
             if (Set-EmiRegistry -Path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name 'SystemUsesLightTheme' -Value 0 -Type DWord -Module $M) { $n++ }
         }
         'HideGalleryNav' {
-            if (Set-EmiRegistry -Path 'HKCU:\SOFTWARE\Classes\CLSID\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}' -Name 'System.IsPinnedToNameSpaceTree' -Value 0 -Type DWord -Module $M) { $n++ }
+            # CLSID de Galeria. El anterior, {0DB7E03F-...}, era el de Objetos 3D
+            # de Windows 10 y no hacia nada (Pureinfotech, Winaero).
+            if (Set-EmiRegistry -Path 'HKCU:\SOFTWARE\Classes\CLSID\{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}' -Name 'System.IsPinnedToNameSpaceTree' -Value 0 -Type DWord -Module $M) { $n++ }
         }
         'HideHomeFolder' {
             if (Set-EmiRegistry -Path 'HKCU:\SOFTWARE\Classes\CLSID\{f874310e-b6b7-47dc-bc84-b9e6b38f5903}' -Name 'System.IsPinnedToNameSpaceTree' -Value 0 -Type DWord -Module $M) { $n++ }
@@ -313,7 +343,18 @@ function Invoke-EmiTweak {
             if (Set-EmiRegistry -Path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer' -Name 'DragDropTrayEnabled' -Value 0 -Type DWord -Module $M) { $n++ }
         }
         'DelayUpdates' {
-            if (Set-EmiRegistry -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate' -Name 'DeferQualityUpdatesPeriodInDays' -Value 7 -Type DWord -Module $M) { $n++ }
+            # Sin DeferQualityUpdates=1 el periodo no se aplica; y es una directiva
+            # de Windows Update para empresas: en Home no hace nada (Configure
+            # Windows Update client policies; Policy CSP Update).
+            $wu = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
+            $ed = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction SilentlyContinue).EditionID
+            if ("$ed" -like 'Core*') {
+                Write-EmiLog "Retrasar actualizaciones: tu edicion ($ed, Home) no aplica esta directiva. No se cambia nada." Warn
+            } else {
+                if (Set-EmiRegistry -Path $wu -Name 'DeferQualityUpdates' -Value 1 -Type DWord -Module $M) { $n++ }
+                if (Set-EmiRegistry -Path $wu -Name 'DeferQualityUpdatesPeriodInDays' -Value 7 -Type DWord -Module $M) { $n++ }
+                Write-EmiLog 'Los parches de seguridad mensuales tambien llegaran 7 dias tarde.' Warn
+            }
         }
         'NoAutoRestart' {
             if (Set-EmiRegistry -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -Name 'NoAutoRebootWithLoggedOnUsers' -Value 1 -Type DWord -Module $M) { $n++ }
