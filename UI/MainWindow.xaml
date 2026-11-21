@@ -1,7 +1,7 @@
 ﻿<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="Another's Toolbox" Height="760" Width="1180" MinHeight="620" MinWidth="980"
+        Title="Another's Toolbox" Height="760" Width="1180" MinHeight="520" MinWidth="860"
         WindowStartupLocation="CenterScreen" Background="Transparent"
         WindowStyle="None" AllowsTransparency="False"
         FontFamily="Segoe UI" TextOptions.TextFormattingMode="Ideal"
@@ -609,6 +609,16 @@
       <Setter Property="FontSize" Value="12.5"/>
       <Setter Property="Height" Value="34"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <!-- Texto completo de la fila aunque la columna se quede corta -->
+      <Setter Property="ToolTip">
+        <Setter.Value>
+          <StackPanel MaxWidth="560">
+            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding Detail}" TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding Path}" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Setter.Value>
+      </Setter>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ListViewItem">
@@ -633,7 +643,9 @@
       <Setter Property="BorderBrush" Value="#66FFFFFF"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="ItemContainerStyle" Value="{StaticResource RowStyle}"/>
-      <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+      <!-- Las columnas se reparten el ancho (Register-EmiColumnFit); si aun asi no
+           caben, aparece la barra horizontal en vez de cortarlas -->
+      <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
     </Style>
 
     <!-- ============================= CAMPOS =========================== -->
@@ -745,6 +757,38 @@
           </ControlTemplate>
         </Setter.Value>
       </Setter>
+      <Style.Triggers>
+        <!-- La barra horizontal (listas anchas) necesita su propia plantilla -->
+        <Trigger Property="Orientation" Value="Horizontal">
+          <Setter Property="Width" Value="Auto"/>
+          <Setter Property="Height" Value="10"/>
+          <Setter Property="Template">
+            <Setter.Value>
+              <ControlTemplate TargetType="ScrollBar">
+                <Grid Background="#1AFFFFFF">
+                  <Track x:Name="PART_Track" IsDirectionReversed="False">
+                    <Track.Thumb>
+                      <Thumb>
+                        <Thumb.Template>
+                          <ControlTemplate TargetType="Thumb">
+                            <Border CornerRadius="5" Margin="0,2" Background="#7A2E86B8"/>
+                          </ControlTemplate>
+                        </Thumb.Template>
+                      </Thumb>
+                    </Track.Thumb>
+                    <Track.IncreaseRepeatButton>
+                      <RepeatButton Command="ScrollBar.PageRightCommand" Opacity="0" Focusable="False"/>
+                    </Track.IncreaseRepeatButton>
+                    <Track.DecreaseRepeatButton>
+                      <RepeatButton Command="ScrollBar.PageLeftCommand" Opacity="0" Focusable="False"/>
+                    </Track.DecreaseRepeatButton>
+                  </Track>
+                </Grid>
+              </ControlTemplate>
+            </Setter.Value>
+          </Setter>
+        </Trigger>
+      </Style.Triggers>
     </Style>
 
   </Window.Resources>
@@ -1151,13 +1195,13 @@
                          Text="Analiza que ocupa espacio, limpia basura del sistema y busca los archivos mas pesados."/>
             </StackPanel>
 
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnDiskScan"    Style="{StaticResource Gloss}"        Content="Analizar basura"/>
               <Button x:Name="BtnDiskClean"   Style="{StaticResource GlossGreenBtn}" Content="Limpiar seleccionado" Margin="8,0,0,0"/>
               <Button x:Name="BtnDiskDism"    Style="{StaticResource Ghost}"        Content="Limpiar componentes (DISM)" Margin="8,0,0,0"/>
               <TextBlock x:Name="TbDiskTotal" VerticalAlignment="Center" Margin="16,0,0,0"
                          FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Ink}" Text=""/>
-            </StackPanel>
+            </WrapPanel>
 
             <TabControl Grid.Row="2" Margin="0,14,0,0" Background="Transparent" BorderThickness="0">
               <TabItem Header="Basura del sistema">
@@ -1185,15 +1229,16 @@
                   <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                   </Grid.RowDefinitions>
-                  <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                  <WrapPanel Grid.Row="0" Margin="0,0,0,8">
                     <TextBlock Text="Carpeta:" VerticalAlignment="Center" Foreground="{StaticResource Deep}" FontSize="12.5"/>
                     <TextBox x:Name="TxtScanPath" Style="{StaticResource Field}" Width="300" Margin="8,0,0,0"/>
                     <TextBlock Text="Minimo MB:" VerticalAlignment="Center" Margin="14,0,0,0" Foreground="{StaticResource Deep}" FontSize="12.5"/>
                     <TextBox x:Name="TxtScanMin" Style="{StaticResource Field}" Width="70" Margin="8,0,0,0" Text="100"/>
                     <Button x:Name="BtnScanFiles"   Style="{StaticResource Gloss}"  Content="Buscar archivos" Margin="10,0,0,0"/>
                     <Button x:Name="BtnScanFolders" Style="{StaticResource Ghost}"  Content="Medir carpetas" Margin="8,0,0,0"/>
-                  </StackPanel>
+                  </WrapPanel>
                   <ListView Grid.Row="1" x:Name="LvBig" Style="{StaticResource Lst}">
                     <ListView.View>
                       <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1211,8 +1256,8 @@
                       </GridView>
                     </ListView.View>
                   </ListView>
-                  <StackPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Bottom"
-                              HorizontalAlignment="Right" Margin="0,0,14,14">
+                  <StackPanel Grid.Row="2" Orientation="Horizontal"
+                              HorizontalAlignment="Right" Margin="0,8,0,0">
                     <Button x:Name="BtnOpenFile" Style="{StaticResource Ghost}" Content="Abrir ubicacion"/>
                     <Button x:Name="BtnDeleteBig" Style="{StaticResource GlossAmberBtn}" Content="Enviar a la papelera" Margin="8,0,0,0"/>
                   </StackPanel>
@@ -1233,11 +1278,11 @@
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
                          Text="Quita lo que sobra. Lo recomendado viene marcado; el resto es opcional."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnTweakApply" Style="{StaticResource GlossGreenBtn}" Content="Aplicar seleccionado"/>
               <Button x:Name="BtnTweakRecommended" Style="{StaticResource Ghost}" Content="Marcar recomendados" Margin="8,0,0,0"/>
               <Button x:Name="BtnRestartExplorer" Style="{StaticResource Ghost}" Content="Reiniciar Explorador" Margin="8,0,0,0"/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvTweaks" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1268,10 +1313,10 @@
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
                          Text="Corta el envio de datos a Microsoft. No toca Windows Defender, Windows Update ni la activacion."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnPrivApply" Style="{StaticResource GlossGreenBtn}" Content="Aplicar seleccionado"/>
               <Button x:Name="BtnPrivRecommended" Style="{StaticResource Ghost}" Content="Marcar recomendados" Margin="8,0,0,0"/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvPrivacy" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1499,10 +1544,10 @@
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
                          Text="Quita bloatware preinstalado y toggles de Windows Features. La remocion de apps es parcialmente reversible via winget/Store."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnDebloatApply" Style="{StaticResource GlossGreenBtn}" Content="Aplicar seleccionado"/>
               <Button x:Name="BtnDebloatRecommended" Style="{StaticResource Ghost}" Content="Marcar recomendados" Margin="8,0,0,0"/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvDebloat" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1533,11 +1578,11 @@
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
                          Text="Desinstala apps del usuario y limpia su cache (%LOCALAPPDATA%\Packages). Las apps del sistema estan protegidas y no se listan. Se registra como revertir cada desinstalacion."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnAppsScan"    Style="{StaticResource Gloss}" Content="Analizar"/>
               <Button x:Name="BtnAppsUninstall" Style="{StaticResource GlossRedBtn}" Content="Desinstalar seleccionado" Margin="8,0,0,0"/>
               <Button x:Name="BtnAppsClearCache" Style="{StaticResource GlossAmberBtn}" Content="Limpiar cache seleccionada" Margin="8,0,0,0"/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvApps" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1569,13 +1614,13 @@
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
                          Text="Crea las reglas de salida con los puertos y direcciones que ESET necesita para activarse, actualizarse y usar LiveGrid."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnEsetApply" Style="{StaticResource GlossGreenBtn}" Content="Aplicar reglas"/>
               <Button x:Name="BtnEsetTest"  Style="{StaticResource Gloss}" Content="Probar conexion" Margin="8,0,0,0"/>
               <Button x:Name="BtnEsetRemove" Style="{StaticResource Ghost}" Content="Quitar reglas" Margin="8,0,0,0"/>
               <CheckBox x:Name="ChkEsetDns" Style="{StaticResource Check}" IsChecked="True" Margin="16,0,0,0"
                         VerticalAlignment="Center" Content="Resolver nombres por DNS (recomendado)"/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvEset" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1608,11 +1653,11 @@
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
                          Text="Se desactivan igual que desde el Administrador de tareas, asi que se pueden volver a activar cuando quieras. Lo protegido (ESET, audio, tactil) nunca se toca."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnStartupScan"    Style="{StaticResource Gloss}" Content="Analizar"/>
               <Button x:Name="BtnStartupDisable" Style="{StaticResource GlossGreenBtn}" Content="Desactivar seleccionado" Margin="8,0,0,0"/>
               <Button x:Name="BtnStartupEnable"  Style="{StaticResource Ghost}" Content="Reactivar seleccionado" Margin="8,0,0,0"/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvStartup" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1646,13 +1691,13 @@
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
                          Text="Lo marcado como Sistema no se puede tocar. Telemetria y Prescindible se pueden cerrar; la telemetria ademas se puede dejar sin Internet."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnProcScan"  Style="{StaticResource Gloss}" Content="Analizar"/>
               <Button x:Name="BtnProcKill"  Style="{StaticResource GlossAmberBtn}" Content="Cerrar seleccionado" Margin="8,0,0,0"/>
               <Button x:Name="BtnProcBlock" Style="{StaticResource GlossRedBtn}" Content="Cerrar y bloquear red" Margin="8,0,0,0"/>
               <TextBlock x:Name="TbRam" VerticalAlignment="Center" Margin="16,0,0,0" FontSize="13"
                          FontWeight="SemiBold" Foreground="{StaticResource Ink}" Text=""/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvProcess" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1687,12 +1732,12 @@
                          Text="Vortex guarda los mods en 2 carpetas separadas: las descargas originales (.7z/.zip) que solo ocupan espacio, y los mods ya instalados/desplegados que el juego usa. Borrar las descargas es seguro y libera espacio sin tocar tus mods activos. Cierra Vortex antes de usar esta seccion."/>
             </StackPanel>
 
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnVortexScan"     Style="{StaticResource Gloss}" Content="Analizar"/>
               <Button x:Name="BtnVortexRemove"   Style="{StaticResource GlossGreenBtn}" Content="Purgar seleccionado" Margin="8,0,0,0"/>
               <Button x:Name="BtnVortexFullClean" Style="{StaticResource Ghost}" Content="Eliminar Vortex completamente" Margin="8,0,0,0"/>
               <Button x:Name="BtnVortexSkyrimClean" Style="{StaticResource GlossRedBtn}" Content="Force Clean Skyrim" Margin="8,0,0,0"/>
-            </StackPanel>
+            </WrapPanel>
 
             <ListView Grid.Row="2" x:Name="LvVortex" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
@@ -1773,6 +1818,7 @@
 
           <!-- ========================= REGISTRO ===================== -->
           <Grid x:Name="PageStore" Visibility="Collapsed">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
             <StackPanel>
               <TextBlock Text="Another Store" FontSize="22" FontWeight="SemiBold"
                          Foreground="#FF1F86C8" Margin="0,0,0,6"/>
@@ -1835,6 +1881,7 @@
                         BorderBrush="#59FFFFFF" BorderThickness="1"/>
               </StackPanel>
             </StackPanel>
+            </ScrollViewer>
           </Grid>
 
           <Grid x:Name="PageLog" Visibility="Collapsed">
@@ -1848,12 +1895,12 @@
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
                          Text="Cada cambio del registro, servicio, tarea y regla de firewall queda anotado y se puede revertir."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnUndoAll" Style="{StaticResource GlossRedBtn}" Content="Revertir todos los cambios"/>
               <Button x:Name="BtnOpenLog" Style="{StaticResource Ghost}" Content="Abrir carpeta de registros" Margin="8,0,0,0"/>
               <TextBlock x:Name="TbUndoCount" VerticalAlignment="Center" Margin="16,0,0,0" FontSize="13"
                          Foreground="{StaticResource Ink}" Text=""/>
-            </StackPanel>
+            </WrapPanel>
             <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,14,0,0" Padding="4">
               <ScrollViewer x:Name="SvLog" VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="IcLog" Margin="10">

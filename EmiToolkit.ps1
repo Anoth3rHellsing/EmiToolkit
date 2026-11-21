@@ -1767,7 +1767,69 @@ $win.Dispatcher.Add_UnhandledException({
     } catch { } finally { $script:InUiFailure = $false }
 })
 
+# ---------------------- Tamano de la ventana y columnas ----------------------
+function Get-EmiFitSize {
+    <#  Encaja la ventana en el area de trabajo (DIP, sin la barra de tareas):
+        a 125-150 % en portatiles de 1366x768 o 1080p el tamano de diseno no cabe.
+        Devuelve ancho, alto, posicion centrada y minimos (nunca mayores que el area). #>
+    param([double] $WorkLeft, [double] $WorkTop, [double] $WorkWidth, [double] $WorkHeight,
+          [double] $Width, [double] $Height, [double] $MinWidth, [double] $MinHeight, [double] $Margin = 12)
+    $maxW = [Math]::Max(200, $WorkWidth - 2 * $Margin)
+    $maxH = [Math]::Max(200, $WorkHeight - 2 * $Margin)
+    $minW = [Math]::Min($MinWidth, $maxW)
+    $minH = [Math]::Min($MinHeight, $maxH)
+    $w = [Math]::Max($minW, [Math]::Min($Width, $maxW))
+    $h = [Math]::Max($minH, [Math]::Min($Height, $maxH))
+    return @{
+        Width = $w; Height = $h; MinWidth = $minW; MinHeight = $minH
+        Left = $WorkLeft + [Math]::Floor(($WorkWidth - $w) / 2)
+        Top  = $WorkTop + [Math]::Floor(($WorkHeight - $h) / 2)
+    }
+}
+
+function Get-EmiColumnWidths {
+    <#  Reparte $Available entre las columnas en proporcion a su ancho de diseno
+        (como Width="*" en un Grid, que GridView no tiene). Las columnas de
+        $FixedMax DIP o menos (las casillas) no cambian; ninguna baja de $Min. #>
+    param([double[]] $Base, [double] $Available, [double] $FixedMax = 50, [double] $Min = 60)
+    $fixed = 0; $flex = 0
+    foreach ($b in $Base) { if ($b -le $FixedMax) { $fixed += $b } else { $flex += $b } }
+    if ($flex -le 0) { return $Base }
+    $k = [Math]::Max(0, $Available - $fixed) / $flex
+    return @($Base | ForEach-Object { if ($_ -le $FixedMax) { $_ } else { [Math]::Max($Min, [Math]::Floor($_ * $k)) } })
+}
+
+$script:ColBase = @{}
+function Register-EmiColumnFit {
+    param($ListView)
+    if (-not $ListView -or -not ($ListView.View -is [System.Windows.Controls.GridView])) { return }
+    $script:ColBase[$ListView.Name] = [double[]]@($ListView.View.Columns | ForEach-Object { $_.Width })
+    $ListView.Add_SizeChanged({
+        param($sender, $e)
+        try {
+            $base = $script:ColBase[$sender.Name]
+            $avail = $sender.ActualWidth - 30   # borde y barra vertical
+            if ($avail -lt 100) { return }
+            $ws = Get-EmiColumnWidths -Base $base -Available $avail
+            $cols = $sender.View.Columns
+            for ($i = 0; $i -lt $cols.Count; $i++) { $cols[$i].Width = $ws[$i] }
+        } catch { }
+    })
+}
+foreach ($lvName in @('LvClean', 'LvBig', 'LvTweaks', 'LvPrivacy', 'LvVault', 'LvDebloat', 'LvApps', 'LvEset', 'LvStartup', 'LvProcess', 'LvVortex')) {
+    Register-EmiColumnFit $ui[$lvName]
+}
+
 $win.Add_SourceInitialized({
+    try {
+        $wa = [System.Windows.SystemParameters]::WorkArea
+        $fit = Get-EmiFitSize -WorkLeft $wa.Left -WorkTop $wa.Top -WorkWidth $wa.Width -WorkHeight $wa.Height `
+               -Width $win.Width -Height $win.Height -MinWidth $win.MinWidth -MinHeight $win.MinHeight
+        $win.MinWidth = $fit.MinWidth; $win.MinHeight = $fit.MinHeight
+        $win.Width = $fit.Width; $win.Height = $fit.Height
+        $win.WindowStartupLocation = 'Manual'
+        $win.Left = $fit.Left; $win.Top = $fit.Top
+    } catch { }
     try {
         $h = (New-Object System.Windows.Interop.WindowInteropHelper($win)).Handle
         [void](Enable-EmiBackdrop -Handle $h -Style 'Acrylic')
