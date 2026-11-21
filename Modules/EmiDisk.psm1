@@ -129,11 +129,10 @@ function Clear-EmiPath {
     $freed  = 0
 
     try {
-        Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
-            try { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop }
-            catch { }   # archivos en uso: se ignoran
-        }
-        if ($DeleteRoot) { Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue }
+        # Sin seguir uniones ni enlaces (Temp y Windows\Temp los puede crear
+        # cualquier usuario): ver Remove-EmiTreeSafe en EmiCore.
+        Remove-EmiTreeSafe -Path $Path -ContentsOnly   # archivos en uso: se saltan
+        if ($DeleteRoot) { try { Remove-EmiTreeSafe -Path $Path } catch { } }
 
         $after = if (Test-Path -LiteralPath $Path) { Get-EmiFolderSize $Path } else { 0 }
         $freed = [math]::Max(0, $before - $after)

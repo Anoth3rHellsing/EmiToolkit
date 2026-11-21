@@ -367,6 +367,43 @@ function Get-EmiFolderSize {
     } catch { return 0 }
 }
 
+function Remove-EmiTreeSafe {
+    <#  Borra una carpeta (o solo su contenido, con -ContentsOnly) SIN seguir
+        uniones, enlaces simbolicos ni otros reparse points. En Windows
+        PowerShell 5.1, Remove-Item -Recurse puede entrar en una union: un
+        usuario que crea C:\Windows\Temp\x -> C:\Program Files\App conseguiria
+        que la limpieza (como administrador) vaciara el destino. Aqui un enlace
+        se borra a si mismo y su destino no se toca. Los archivos en uso se
+        saltan; sin -ContentsOnly, falla si la carpeta no queda vacia. #>
+    param([Parameter(Mandatory)][string] $Path, [switch] $ContentsOnly)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    $rp = [IO.FileAttributes]::ReparsePoint
+    if ($item.Attributes -band $rp) {
+        if ($ContentsOnly) { Write-EmiLog "$Path es un enlace a otra carpeta: no se vacia." Warn; return }
+        if ($item.PSIsContainer) { [IO.Directory]::Delete($item.FullName, $false) } else { [IO.File]::Delete($item.FullName) }
+        return
+    }
+    if (-not $item.PSIsContainer) {
+        $item.Attributes = [IO.FileAttributes]::Normal
+        [IO.File]::Delete($item.FullName)
+        return
+    }
+    foreach ($c in @(([IO.DirectoryInfo]$item.FullName).GetFileSystemInfos())) {
+        try {
+            if ($c.Attributes -band $rp) {
+                # El enlace en si: Directory.Delete(no recursivo) quita la union
+                if ($c -is [IO.DirectoryInfo]) { [IO.Directory]::Delete($c.FullName, $false) } else { [IO.File]::Delete($c.FullName) }
+            } elseif ($c -is [IO.DirectoryInfo]) {
+                Remove-EmiTreeSafe -Path $c.FullName
+            } else {
+                if ($c.Attributes -band [IO.FileAttributes]::ReadOnly) { $c.Attributes = [IO.FileAttributes]::Normal }
+                [IO.File]::Delete($c.FullName)
+            }
+        } catch { }   # en uso o sin permiso: se deja
+    }
+    if (-not $ContentsOnly) { [IO.Directory]::Delete($item.FullName, $false) }
+}
+
 function Split-EmiCommandLine {
     <#  Separa una linea de comandos de Windows en ejecutable y argumentos:
           '"C:\Program Files\X\Uninstall X.exe" /currentuser' -> ruta | /currentuser

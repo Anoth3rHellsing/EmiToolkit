@@ -252,7 +252,7 @@ function Remove-EmiVortexMods {
             $stateDir = Join-Path $info.AppDataPath 'state.v2'
             if (Test-Path -LiteralPath $stateDir) {
                 Add-EmiJournalEntry @{ Kind='File'; Path=$stateDir; Backup=$null; Module='Vortex' }
-                Remove-Item -LiteralPath $stateDir -Recurse -Force -ErrorAction SilentlyContinue
+                try { Remove-EmiTreeSafe -Path $stateDir } catch { }
                 Write-EmiLog 'Base de datos state.v2 eliminada.' Ok
                 $n++
             }
@@ -279,7 +279,7 @@ function Remove-EmiVortexMods {
         # Eliminar carpeta del mod en staging
         Add-EmiJournalEntry @{ Kind='File'; Path=$modPath; Backup=$null; Module='Vortex' }
         try {
-            Remove-Item -LiteralPath $modPath -Recurse -Force -ErrorAction Stop
+            Remove-EmiTreeSafe -Path $modPath
             $msg = 'Mod eliminado: ' + $modName + ' (' + $gameId + ') - ' + $purged + ' enlaces purgados'
             Write-EmiLog $msg Ok
             $n++
@@ -364,7 +364,7 @@ function Remove-EmiVortexFull {
 
     Add-EmiJournalEntry @{ Kind='File'; Path=$info.AppDataPath; Backup=$null; Module='Vortex' }
     try {
-        Remove-Item -LiteralPath $info.AppDataPath -Recurse -Force -ErrorAction Stop
+        Remove-EmiTreeSafe -Path $info.AppDataPath
         Write-EmiLog 'Datos de Vortex eliminados.' Ok
     }
     catch { Write-EmiLog "No se pudo eliminar AppData: $($_.Exception.Message)" Warn }
@@ -679,7 +679,7 @@ function Remove-EmiVortexSkyrimFull {
         Write-EmiLog '=== Paso 2/6: Eliminando datos de Vortex ===' Step
         Add-EmiJournalEntry @{ Kind='File'; Path=$info.AppDataPath; Backup=$null; Module='Vortex' }
         try {
-            Remove-Item -LiteralPath $info.AppDataPath -Recurse -Force -ErrorAction Stop
+            Remove-EmiTreeSafe -Path $info.AppDataPath
             Write-EmiLog 'Datos de Vortex eliminados.' Ok
         } catch { Write-EmiLog "No se pudo eliminar AppData: $($_.Exception.Message)" Warn }
 
@@ -800,7 +800,7 @@ function Remove-EmiVortexSkyrimFull {
                 if (Test-Path -LiteralPath $folder) {
                     Add-EmiJournalEntry @{ Kind='File'; Path=$folder; Backup=$null; Module='Vortex' }
                     try {
-                        Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction Stop
+                        Remove-EmiTreeSafe -Path $folder
                         Write-EmiLog "Carpeta eliminada: $folder" Ok
                     } catch {
                         Write-EmiLog "Error eliminando $folder : $($_.Exception.Message)" Warn
@@ -825,7 +825,7 @@ function Remove-EmiVortexSkyrimFull {
                 if (Test-Path -LiteralPath $file) {
                     Add-EmiJournalEntry @{ Kind='File'; Path=$file; Backup=$null; Module='Vortex' }
                     try {
-                        Remove-Item -LiteralPath $file -Recurse -Force -ErrorAction Stop
+                        Remove-EmiTreeSafe -Path $file
                         Write-EmiLog "Archivo eliminado: $file" Ok
                     } catch {
                         Write-EmiLog "Error eliminando $file : $($_.Exception.Message)" Warn
@@ -868,7 +868,7 @@ function Remove-EmiVortexSkyrimFull {
         if (Test-Path -LiteralPath $path) {
             Add-EmiJournalEntry @{ Kind='File'; Path=$path; Backup=$null; Module='Vortex' }
             try {
-                Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+                Remove-EmiTreeSafe -Path $path
                 Write-EmiLog "Carpeta de usuario eliminada: $path" Ok
             } catch {
                 Write-EmiLog "Error eliminando $path : $($_.Exception.Message)" Warn
@@ -888,7 +888,7 @@ function Remove-EmiVortexSkyrimFull {
         if (Test-Path -LiteralPath $residual) {
             Add-EmiJournalEntry @{ Kind='File'; Path=$residual; Backup=$null; Module='Vortex' }
             try {
-                Remove-Item -LiteralPath $residual -Recurse -Force -ErrorAction Stop
+                Remove-EmiTreeSafe -Path $residual
                 Write-EmiLog "Residuo de Vortex eliminado: $residual" Ok
             } catch {
                 Write-EmiLog "Error eliminando residuo: ($($_.Exception.Message))" Warn
