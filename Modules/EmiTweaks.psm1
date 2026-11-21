@@ -10,15 +10,25 @@ $HKLM_POL_WS  = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search'
 $HKLM_POL_EXP = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'
 
 function Get-EmiTweaks {
-    <#  Catalogo de optimizaciones. Recommended = se aplica en modo basico. #>
-    @(
+    <#  Catalogo de optimizaciones. Recommended = se aplica en modo basico.
+        Editions / MaxBuild: donde surte efecto (EmiCore, Get-EmiItemSkipReason);
+        fuera de ahi se avisa en el texto y no se recomienda. #>
+    $list = Update-EmiCatalogForEdition @(
         [pscustomobject]@{ Id='Widgets';    Name='Quitar Widgets de la barra de tareas';       Info='Libera RAM del proceso Widgets.exe';                 Recommended=$true }
-        [pscustomobject]@{ Id='Copilot';    Name='Quitar el boton de Copilot';                 Info='Desactiva Copilot en la barra de tareas';            Recommended=$true }
-        [pscustomobject]@{ Id='Chat';       Name='Quitar el icono de Chat / Teams';            Info='Quita el chat integrado de Windows';                 Recommended=$true }
+        # El boton de Copilot de la barra solo existe hasta 23H2 (22631); desde 24H2
+        # Copilot es una app y se quita en Debloat (Policy CSP WindowsAI: la directiva
+        # TurnOffWindowsCopilot esta obsoleta y no afecta a la app nueva).
+        [pscustomobject]@{ Id='Copilot';    Name='Quitar el boton de Copilot';                 Info='Solo Windows 11 23H2 y anteriores; desde 24H2 Copilot es una app (quitala en Debloat)'; Recommended=$true; MaxBuild=22631 }
+        # El icono de Chat (Teams personal) desaparecio en 23H2
+        [pscustomobject]@{ Id='Chat';       Name='Quitar el icono de Chat / Teams';            Info='Solo Windows 11 22H2 y anteriores: en 23H2 ya no existe'; Recommended=$false; MaxBuild=22621 }
         [pscustomobject]@{ Id='WebSearch';  Name='Quitar la busqueda web de Bing del Inicio';  Info='El menu Inicio pasa a buscar solo en el equipo';     Recommended=$true }
         [pscustomobject]@{ Id='Suggest';    Name='Quitar sugerencias, anuncios y consejos';    Info='Apps sugeridas, contenido destacado, tips';          Recommended=$true }
         [pscustomobject]@{ Id='StartRec';   Name='Vaciar la seccion Recomendado del Inicio';   Info='Sin archivos ni apps recientes en el menu Inicio';   Recommended=$true }
-        [pscustomobject]@{ Id='GameDVR';    Name='Desactivar Xbox Game Bar y grabacion';       Info='Quita la captura en segundo plano (mucha RAM)';      Recommended=$true }
+        [pscustomobject]@{ Id='GameDVR';    Name='Desactivar Xbox Game Bar y grabacion';       Info='Quita la Game Bar y la grabacion de partidas (Win+G deja de funcionar)'; Recommended=$true }
+        # Antes iba dentro de GameDVR. Desactiva en todo el sistema las optimizaciones
+        # de pantalla completa, base del modelo flip y de "Optimizaciones para juegos
+        # en ventana" (Microsoft Support 3f006843); ningun beneficio medido.
+        [pscustomobject]@{ Id='DisableFSO'; Name='Desactivar optimizaciones de pantalla completa'; Info='OJO: casi nunca ayuda y puede empeorar latencia, VRR y Auto HDR; solo para un juego concreto que falle'; Recommended=$false }
         [pscustomobject]@{ Id='BgApps';     Name='Desactivar apps en segundo plano';           Info='OJO: sin avisos de Enlace Movil, alarmas ni correo de la Store; Windows 11 no tiene interruptor, se revierte desde Revertir'; Recommended=$false }
         [pscustomobject]@{ Id='Context';    Name='Menu contextual clasico (Win10)';            Info='Sin el paso extra de "Mostrar mas opciones"';        Recommended=$true }
         [pscustomobject]@{ Id='Explorer';   Name='Explorador: abrir en Este equipo';           Info='Tambien muestra extensiones de archivo';             Recommended=$true }
@@ -29,9 +39,16 @@ function Get-EmiTweaks {
         [pscustomobject]@{ Id='SvcPca';     Name='Asistente de compatibilidad en manual';      Info='OJO: deja de avisar y corregir programas antiguos que fallan'; Recommended=$false }
         [pscustomobject]@{ Id='SvcDoSvc';   Name='Delivery Optimization en manual';            Info='OJO: Store y Windows Update pueden descargar peor; para cortar el P2P basta "Delivery Optimization solo en LAN" de Privacidad'; Recommended=$false }
         [pscustomobject]@{ Id='Tasks';      Name='Desactivar tareas programadas de rastreo';   Info='CEIP, Compatibility Appraiser, DiskDiagnostic';      Recommended=$true }
-        [pscustomobject]@{ Id='NetworkOpt'; Name='Optimizar la pila de red';                   Info='Autotuning normal y sin limitacion de ancho de banda'; Recommended=$true }
-        [pscustomobject]@{ Id='PowerPlan';  Name='Plan de energia Alto rendimiento';           Info='Recomendado en equipos de escritorio';               Recommended=$false }
-        [pscustomobject]@{ Id='SysMain';    Name='Desactivar SysMain (Superfetch)';            Info='Solo en equipos con SSD; en HDD no conviene';        Recommended=$false }
+        # Placebo probable: autotuning normal ya es el de fabrica y los dos valores de
+        # MMCSS solo afectan mientras suena audio o video (Microsoft, "Multimedia Class
+        # Scheduler Service"); NetworkThrottlingIndex no tiene beneficio medido.
+        [pscustomobject]@{ Id='NetworkOpt'; Name='Ajustar la pila de red (MMCSS)';             Info='Casi nunca se nota: deja el autotuning en normal (el de fabrica) y cambia la reserva de MMCSS para audio y video'; Recommended=$false }
+        # En portatiles gasta bateria y en CPU modernas Equilibrado con "Mejor
+        # rendimiento" rinde igual; con Modern Standby ni existe (se oculta abajo).
+        [pscustomobject]@{ Id='PowerPlan';  Name='Plan de energia Alto rendimiento';           Info='Solo escritorio: gasta mas; en CPU modernas Equilibrado con Mejor rendimiento rinde igual'; Recommended=$false }
+        # Windows ya adapta SysMain y Prefetch a los SSD; en pruebas no mejora nada
+        # (Windows Latest, 26-10-2026, dos PC) y en HDD lo empeora.
+        [pscustomobject]@{ Id='SysMain';    Name='Desactivar SysMain (Superfetch)';            Info='OJO: rara vez ayuda; Windows ya lo adapta a los SSD y en HDD las apps abren mas lentas'; Recommended=$false }
         [pscustomobject]@{ Id='WSearch';    Name='Desactivar la indexacion de Windows Search'; Info='Menos disco, pero las busquedas van mas lentas';     Recommended=$false }
         [pscustomobject]@{ Id='OneDrive';   Name='Quitar OneDrive del arranque';               Info='No lo desinstala, solo deja de iniciarse solo';      Recommended=$false }
         [pscustomobject]@{ Id='Hibernate';  Name='Desactivar hibernacion';                     Info='Libera hiberfil.sys (varios GB) del disco C:';       Recommended=$false }
@@ -52,11 +69,16 @@ function Get-EmiTweaks {
         [pscustomobject]@{ Id='DisableStorageSense';Name='Desactivar Storage Sense automatico';    Info='Impide limpieza automatica de archivos temporales';       Recommended=$false }
         [pscustomobject]@{ Id='DisableBitLockerAuto';Name='Desactivar cifrado automatico BitLocker';Info='Evita cifrado silencioso en dispositivos compatibles';   Recommended=$false }
         [pscustomobject]@{ Id='DisableDragTray';    Name='Desactivar bandeja de arrastre';         Info='Quita el area de compartir archivos al arrastrar';        Recommended=$true }
-        [pscustomobject]@{ Id='DelayUpdates';       Name='Retrasar actualizaciones de calidad 7d'; Info='AVISO: las de calidad SON los parches de seguridad mensuales: llegan 7 dias tarde. Solo Pro, Enterprise y Education'; Recommended=$false }
+        # Directiva de Windows Update para empresas: Home la ignora (Policy CSP Update,
+        # DeferQualityUpdatesPeriodInDays; "Configure Windows Update client policies")
+        [pscustomobject]@{ Id='DelayUpdates';       Name='Retrasar actualizaciones de calidad 7d'; Info='AVISO: las de calidad SON los parches de seguridad mensuales: llegan 7 dias tarde'; Recommended=$false; Editions=@('Pro','Enterprise','Education') }
         [pscustomobject]@{ Id='NoAutoRestart';      Name='No reiniciar con usuario activo';        Info='Windows no fuerza reinicio tras update si hay sesion';    Recommended=$true }
         [pscustomobject]@{ Id='DevCliTelemetry';    Name='Desactivar telemetria de CLI dev';       Info='Azure CLI, .NET, Bicep, PowerShell, NuGet; requiere nuevo shell';Recommended=$true }
         [pscustomobject]@{ Id='DisableModernStandbyNet';Name='Red desactivada en Modern Standby';  Info='AVISO: impide notificaciones push en suspension';         Recommended=$false }
     )
+    # Con Modern Standby solo hay plan Equilibrado: Alto rendimiento no se ofrece
+    if (Test-EmiModernStandby) { $list = @($list | Where-Object { $_.Id -ne 'PowerPlan' }) }
+    return $list
 }
 
 # Servicios de la opcion "Services" (recomendada, modo basico). Solo lo que
@@ -130,12 +152,51 @@ $script:JunkTasks = @(
     @{ P='\Microsoft\Windows\Retail Demo\';            N='CleanupOfflineContent' }
 )
 
+$script:ModernStandby = $null
+
+function Test-EmiS0InPowercfg {
+    <#  Logica pura sobre la salida de powercfg /a: primero la cabecera, luego
+        los estados disponibles y, tras una linea en blanco, los que no lo
+        estan. Cambia el idioma, no la forma: se busca S0 en el primer bloque. #>
+    param([string[]] $Lines)
+    $started = $false
+    foreach ($l in $Lines) {
+        if (-not $started) { if ("$l".Trim()) { $started = $true }; continue }
+        if (-not "$l".Trim()) { break }
+        if ($l -match '\bS0\b') { return $true }
+    }
+    return $false
+}
+
+function Test-EmiModernStandby {
+    <#  Cierto si el equipo usa Modern Standby (S0 Low Power Idle). $false si
+        no se puede saber. Se calcula una vez. #>
+    if ($null -ne $script:ModernStandby) { return $script:ModernStandby }
+    $r = $false
+    try { $r = Test-EmiS0InPowercfg -Lines @(& powercfg.exe /a 2>$null) } catch { }
+    $script:ModernStandby = [bool]$r
+    return $script:ModernStandby
+}
+
+function Get-EmiReservedStorageState {
+    <#  'Enabled', 'Disabled' o $null. Con el cmdlet de DISM: la salida de
+        dism.exe cambia con el idioma. #>
+    try {
+        if (Get-Command Get-WindowsReservedStorageState -ErrorAction SilentlyContinue) {
+            return [string](Get-WindowsReservedStorageState -ErrorAction Stop).ReservedStorageState
+        }
+    } catch { }
+    return $null
+}
+
 function Invoke-EmiTweak {
     <#  Aplica una optimizacion concreta. Devuelve el numero de cambios. #>
     param([Parameter(Mandatory)][string] $Id)
 
     $n = 0
     $M = 'Optimizacion'
+    $def = @(Get-EmiTweaks | Where-Object { $_.Id -eq $Id }) | Select-Object -First 1
+    if ($def -and -not (Test-EmiItemApplies -Item $def)) { return 0 }
 
     switch ($Id) {
 
@@ -145,6 +206,8 @@ function Invoke-EmiTweak {
         }
 
         'Copilot' {
+            # Hasta 23H2 (MaxBuild en el catalogo). TurnOffWindowsCopilot tambien
+            # ocultaba el boton en 23H2; desde 24H2 es una directiva obsoleta.
             if (Set-EmiRegistry $HKCU_ADV 'ShowCopilotButton' 0 DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 1 DWord $M) { $n++ }
         }
@@ -155,12 +218,12 @@ function Invoke-EmiTweak {
         }
 
         'WebSearch' {
+            # CortanaConsent y AllowCortana ya no se escriben: Cortana se retiro en
+            # 2023 y no hacian nada (auditoria de sistema, "Directivas que no aplican").
             if (Set-EmiRegistry $HKCU_SEARCH 'BingSearchEnabled' 0 DWord $M) { $n++ }
-            if (Set-EmiRegistry $HKCU_SEARCH 'CortanaConsent' 0 DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'DisableSearchBoxSuggestions' 1 DWord $M) { $n++ }
             if (Set-EmiRegistry $HKLM_POL_WS 'DisableWebSearch' 1 DWord $M) { $n++ }
             if (Set-EmiRegistry $HKLM_POL_WS 'ConnectedSearchUseWeb' 0 DWord $M) { $n++ }
-            if (Set-EmiRegistry $HKLM_POL_WS 'AllowCortana' 0 DWord $M) { $n++ }
         }
 
         'Suggest' {
@@ -174,22 +237,38 @@ function Invoke-EmiTweak {
             )
             foreach ($v in $vals) { if (Set-EmiRegistry $HKCU_CDM $v 0 DWord $M) { $n++ } }
             if (Set-EmiRegistry 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\UserProfileEngagement' 'ScoobeSystemSettingEnabled' 0 DWord $M) { $n++ }
-            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsConsumerFeatures' 1 DWord $M) { $n++ }
-            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableSoftLanding' 1 DWord $M) { $n++ }
+            # "Turn off Microsoft consumer experiences" y "Do not show Windows tips"
+            # solo valen en Enterprise y Education (Policy CSP Experience,
+            # AllowWindowsConsumerFeatures / AllowWindowsTips); en Home y Pro las
+            # apps sugeridas se quitan con los valores de ContentDeliveryManager.
+            if (Test-EmiEditionApplies -Editions @('Enterprise','Education') -What 'Directivas de experiencias del consumidor y consejos') {
+                if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsConsumerFeatures' 1 DWord $M) { $n++ }
+                if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableSoftLanding' 1 DWord $M) { $n++ }
+            }
         }
 
         'StartRec' {
             if (Set-EmiRegistry $HKCU_ADV 'Start_TrackDocs' 0 DWord $M) { $n++ }
             if (Set-EmiRegistry $HKCU_ADV 'Start_TrackProgs' 0 DWord $M) { $n++ }
-            if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'HideRecommendedSection' 1 DWord $M) { $n++ }
+            # HideRecommendedSection solo vale en Windows 11 SE y Education (Policy
+            # CSP Start; Winaero, "Windows 11 now has the option to remove
+            # Recommended from Start, but you can't use it"). En Enterprise no
+            # esta confirmado, asi que no se escribe.
+            if (Test-EmiEditionApplies -Editions @('SE','Education') -What 'Ocultar la seccion Recomendado por directiva') {
+                if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'HideRecommendedSection' 1 DWord $M) { $n++ }
+            }
         }
 
         'GameDVR' {
             if (Set-EmiRegistry 'HKCU:\System\GameConfigStore' 'GameDVR_Enabled' 0 DWord $M) { $n++ }
-            if (Set-EmiRegistry 'HKCU:\System\GameConfigStore' 'GameDVR_FSEBehaviorMode' 2 DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR' 'AllowGameDVR' 0 DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKCU:\SOFTWARE\Microsoft\GameBar' 'UseNexusForGameBarEnabled' 0 DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKCU:\SOFTWARE\Microsoft\GameBar' 'ShowStartupPanel' 0 DWord $M) { $n++ }
+        }
+
+        'DisableFSO' {
+            Write-EmiLog 'Optimizaciones de pantalla completa desactivadas en todo el sistema: si un juego va peor, Revertir lo deshace.' Warn
+            if (Set-EmiRegistry 'HKCU:\System\GameConfigStore' 'GameDVR_FSEBehaviorMode' 2 DWord $M) { $n++ }
         }
 
         'BgApps' {
@@ -201,13 +280,13 @@ function Invoke-EmiTweak {
         }
 
         'Context' {
-            $k = 'HKCU:\SOFTWARE\CLASSES\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32'
-            try {
-                if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null }
-                Set-ItemProperty -LiteralPath $k -Name '(default)' -Value '' -Force
-                Add-EmiJournalEntry @{ Kind='Registry'; Path=$k; Name='(default)'; Existed=$false; Module=$M }
+            # El menu clasico sale si existe la clave con (predeterminado) vacio.
+            # Set-EmiRegistry anota la clave {86ca1aa0} si la crea (Revertir la
+            # quita entera) y no toca ni anota nada si ya tenias el menu clasico.
+            if (Set-EmiRegistry 'HKCU:\SOFTWARE\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32' '(default)' '' String $M) {
+                Write-EmiLog 'Menu contextual clasico activado (se ve al reiniciar el Explorador).' Ok
                 $n++
-            } catch { }
+            }
         }
 
         'Explorer' {
@@ -232,28 +311,64 @@ function Invoke-EmiTweak {
         }
 
         'NetworkOpt' {
-            try {
-                & netsh.exe int tcp set global autotuninglevel=normal | Out-Null
-                Write-EmiLog 'Autotuning TCP en normal.' Ok; $n++
-            } catch { }
+            # Autotuning: normal es el valor de fabrica. Solo se cambia si estaba
+            # en otro nivel, y se anota cual para que Revertir lo devuelva.
+            $lvl = $null
+            try { $lvl = [string](Get-NetTCPSetting -SettingName Internet -ErrorAction Stop | Select-Object -First 1).AutoTuningLevelLocal } catch { }
+            if (-not $lvl) { Write-EmiLog 'No se pudo leer el autotuning de TCP: no se toca.' Warn }
+            elseif ($lvl -eq 'Normal') { Write-EmiLog 'El autotuning de TCP ya estaba en normal.' Ok }
+            elseif ($lvl.ToLowerInvariant() -notin @('disabled', 'restricted', 'highlyrestricted', 'experimental')) {
+                Write-EmiLog "Autotuning de TCP en un nivel desconocido ($lvl): no se toca." Warn
+            }
+            else {
+                & netsh.exe int tcp set global autotuninglevel=normal 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    Add-EmiJournalEntry @{ Kind='Command'; Action='TcpAutotuning'; OldLevel=$lvl.ToLowerInvariant(); Module=$M }
+                    Write-EmiLog "Autotuning de TCP: de $lvl a normal." Ok; $n++
+                } else { Write-EmiLog "netsh devolvio $LASTEXITCODE`: el autotuning sigue igual." Warn }
+            }
             if (Set-EmiRegistry 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' 'NetworkThrottlingIndex' 0xffffffff DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' 'SystemResponsiveness' 10 DWord $M) { $n++ }
         }
 
         'PowerPlan' {
-            try {
-                $guid = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'   # Alto rendimiento
-                & powercfg.exe -duplicatescheme $guid 2>$null | Out-Null
-                & powercfg.exe -setactive $guid 2>$null | Out-Null
-                if ($LASTEXITCODE -eq 0) { Write-EmiLog 'Plan de energia: Alto rendimiento.' Ok; $n++ }
-                else {
-                    & powercfg.exe -setactive SCHEME_MIN 2>$null | Out-Null
-                    Write-EmiLog 'Plan de energia ajustado.' Ok; $n++
-                }
-            } catch { Write-EmiLog "Plan de energia: $($_.Exception.Message)" Warn }
+            # Con Modern Standby (S0) solo existe Equilibrado: el plan Alto
+            # rendimiento no aparece o no hace nada (Microsoft Q&A, "Windows 11
+            # High Performance power plan"). Ahi se usa el modo de energia.
+            if (Test-EmiModernStandby) {
+                Write-EmiLog 'Este equipo usa Modern Standby y solo tiene el plan Equilibrado. Usa Configuracion > Sistema > Energia > Modo de energia. No se cambia nada.' Warn
+                break
+            }
+            $hp   = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'   # Alto rendimiento
+            $mine = Get-EmiPowerSchemeGuid                    # copia propia, GUID fijo
+            $prev = Get-EmiActivePowerScheme
+            if (-not $prev) { Write-EmiLog 'No se pudo leer el plan de energia activo: no se cambia nada.' Warn; break }
+            if ($prev -in @($hp, $mine)) { Write-EmiLog 'El plan Alto rendimiento ya estaba activo.' Ok; break }
+            $list = (& powercfg.exe /list 2>$null) -join "`n"
+            $target = $null; $created = $null
+            if ($list -match $hp) { $target = $hp }
+            elseif ($list -match $mine) { $target = $mine }
+            else {
+                # Una sola copia, siempre con el mismo GUID: antes se duplicaba en cada ejecucion
+                & powercfg.exe /duplicatescheme $hp $mine 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) { $target = $mine; $created = $mine }
+            }
+            if (-not $target) { Write-EmiLog 'Este equipo no tiene el plan Alto rendimiento: no se cambia nada.' Warn; break }
+            & powercfg.exe /setactive $target 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0 -or (Get-EmiActivePowerScheme) -ne $target) {
+                Write-EmiLog 'No se pudo activar el plan Alto rendimiento: sigue el plan anterior.' Warn
+                if ($created) { & powercfg.exe /delete $created 2>&1 | Out-Null }
+                break
+            }
+            Add-EmiJournalEntry @{ Kind='Command'; Action='PowerScheme'; OldGuid=$prev; CreatedGuid=$created; Module=$M }
+            Write-EmiLog 'Plan de energia: Alto rendimiento (Revertir vuelve al anterior).' Ok
+            $n++
         }
 
-        'SysMain'  { if (Set-EmiService -Name 'SysMain' -StartupType Disabled -Stop -Module $M) { $n++ } }
+        'SysMain'  {
+            Write-EmiLog 'SysMain: rara vez acelera nada (Windows ya lo adapta a los SSD); si notas que las apps tardan mas en abrir, Revertir lo deshace.' Warn
+            if (Set-EmiService -Name 'SysMain' -StartupType Disabled -Stop -Module $M) { $n++ }
+        }
         'WSearch'  { if (Set-EmiService -Name 'WSearch' -StartupType Disabled -Stop -Module $M) { $n++ } }
 
         'OneDrive' {
@@ -270,22 +385,31 @@ function Invoke-EmiTweak {
         }
 
         'Hibernate' {
-            try {
-                # Solo se apunta si estaba activa: deshacer no debe encenderla si ya estaba apagada
-                $hib = (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name 'HibernateEnabled' -ErrorAction SilentlyContinue).HibernateEnabled
-                & powercfg.exe /hibernate off | Out-Null
-                Write-EmiLog 'Hibernacion desactivada (hiberfil.sys liberado).' Ok
-                if ($hib -ne 0) { Add-EmiJournalEntry @{ Kind='Command'; Action='Hibernate'; Module=$M } }
-                $n++
-            } catch { Write-EmiLog "Hibernacion: $($_.Exception.Message)" Warn }
+            try { if (Disable-EmiHibernation -Module $M) { $n++ } }
+            catch { Write-EmiLog "Hibernacion: $($_.Exception.Message)" Warn }
         }
 
         'Reserved' {
+            # Se mira el estado antes y despues: con una actualizacion en curso
+            # Windows no deja cambiarlo, y antes se daba por hecho igualmente.
+            $st = Get-EmiReservedStorageState
+            if ($st -eq 'Disabled') { Write-EmiLog 'El almacenamiento reservado ya estaba desactivado.' Ok; break }
+            if ($st -ne 'Enabled') { Write-EmiLog 'No se pudo leer el estado del almacenamiento reservado: no se toca.' Warn; break }
+            $ok = $false
             try {
-                & dism.exe /Online /Set-ReservedStorageState /State:Disabled 2>&1 | Out-Null
-                Write-EmiLog 'Almacenamiento reservado desactivado.' Ok
-                $n++
+                if (Get-Command Set-WindowsReservedStorageState -ErrorAction SilentlyContinue) {
+                    Set-WindowsReservedStorageState -State Disabled -ErrorAction Stop | Out-Null
+                } else {
+                    & dism.exe /Online /Set-ReservedStorageState /State:Disabled /NoRestart 2>&1 | Out-Null
+                    if ($LASTEXITCODE -ne 0) { throw "DISM devolvio $LASTEXITCODE" }
+                }
+                $ok = ((Get-EmiReservedStorageState) -ne 'Enabled')
             } catch { Write-EmiLog "Almacenamiento reservado: $($_.Exception.Message)" Warn }
+            if ($ok) {
+                Add-EmiJournalEntry @{ Kind='Command'; Action='ReservedStorage'; OldState='Enabled'; Module=$M }
+                Write-EmiLog 'Almacenamiento reservado desactivado (Revertir lo reactiva).' Ok
+                $n++
+            } else { Write-EmiLog 'El almacenamiento reservado sigue activo (Windows no deja cambiarlo con una actualizacion pendiente).' Warn }
         }
 
         # --- Win11Debloat: UI/UX, Update, Dev CLI, AI services ---
@@ -346,15 +470,11 @@ function Invoke-EmiTweak {
             # Sin DeferQualityUpdates=1 el periodo no se aplica; y es una directiva
             # de Windows Update para empresas: en Home no hace nada (Configure
             # Windows Update client policies; Policy CSP Update).
+            # La edicion la filtra Editions del catalogo (Test-EmiItemApplies)
             $wu = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
-            $ed = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction SilentlyContinue).EditionID
-            if ("$ed" -like 'Core*') {
-                Write-EmiLog "Retrasar actualizaciones: tu edicion ($ed, Home) no aplica esta directiva. No se cambia nada." Warn
-            } else {
-                if (Set-EmiRegistry -Path $wu -Name 'DeferQualityUpdates' -Value 1 -Type DWord -Module $M) { $n++ }
-                if (Set-EmiRegistry -Path $wu -Name 'DeferQualityUpdatesPeriodInDays' -Value 7 -Type DWord -Module $M) { $n++ }
-                Write-EmiLog 'Los parches de seguridad mensuales tambien llegaran 7 dias tarde.' Warn
-            }
+            if (Set-EmiRegistry -Path $wu -Name 'DeferQualityUpdates' -Value 1 -Type DWord -Module $M) { $n++ }
+            if (Set-EmiRegistry -Path $wu -Name 'DeferQualityUpdatesPeriodInDays' -Value 7 -Type DWord -Module $M) { $n++ }
+            Write-EmiLog 'Los parches de seguridad mensuales tambien llegaran 7 dias tarde.' Warn
         }
         'NoAutoRestart' {
             if (Set-EmiRegistry -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -Name 'NoAutoRebootWithLoggedOnUsers' -Value 1 -Type DWord -Module $M) { $n++ }
@@ -395,6 +515,9 @@ function Invoke-EmiTweakSet {
     $i     = 0
 
     foreach ($id in $Ids) {
+        # Cancelar cooperativo (Test-EmiCancel, rama de interfaz): solo entre
+        # elementos, nunca entre escribir un cambio y anotarlo
+        if ((Get-Command Test-EmiCancel -ErrorAction SilentlyContinue) -and (Test-EmiCancel)) { Write-EmiLog 'Cancelado: lo aplicado hasta aqui queda anotado y se puede deshacer.' Warn; break }
         $i++
         $tw = $all | Where-Object { $_.Id -eq $id }
         $label = if ($tw) { $tw.Name } else { $id }
