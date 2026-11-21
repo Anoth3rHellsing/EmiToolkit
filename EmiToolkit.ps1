@@ -70,7 +70,7 @@ $ui = @{}
 foreach ($n in @(
     'TbHeaderHint','BtnClose','BtnMax','BtnMin','SwAdvanced','TbModeHint','TbAdminBadge','TbAdvHeader',
     'NavHome','NavAnyDesk','NavDisk','NavTweaks','NavPrivacy','NavPrivRecs','NavDebloat','NavApps','NavEset','NavStartup','NavProcess','NavVortex','NavSystem','NavLog','NavStore',
-    'PageHome','PageAnyDesk','PageDisk','PageTweaks','PagePrivacy','PagePrivRecs','PageDebloat','PageApps','PageEset','PageStartup','PageProcess','PageVortex','PageSystem','PageLog',
+    'PageHome','PageAnyDesk','PageDisk','PageTweaks','PagePrivacy','PagePrivRecs','PageDebloat','PageApps','PageEset','PageStartup','PageProcess','PageVortex','PageSystem','PageLog','PageStore',
     'TbHello','TbOneClickInfo','ChkRestore','ChkEsetInclude','ChkZenInclude','BtnOneClick','IcDisks',
     'TbStatPrivacy','TbStatFast','TbStatEset','TbStatZen','TbStatRam','TbStatPc',
     'TbAnyState','TbAnyId','BtnAnyDownload','BtnAnyFolder','BtnAnyOpen','IcAnySteps',
@@ -242,6 +242,8 @@ $pages = @{
 function Show-EmiPage {
     param([string] $Name)
     foreach ($k in $pages.Keys) {
+        # Una pagina que falte en el XAML o en $ui no debe tumbar la navegacion
+        if (-not $pages[$k]) { continue }
         $pages[$k].Visibility = if ($k -eq $Name) { 'Visible' } else { 'Collapsed' }
     }
 }
