@@ -132,15 +132,17 @@ function Set-EmiBusy {
     param([bool] $Busy, [string] $Text = 'Listo')
     $ui.TbStatus.Text  = $Text
     $ui.EllBusy.Fill   = if ($Busy) { $busyAmber } else { $busyGreen }
-    foreach ($b in @('BtnOneClick','BtnDiskScan','BtnDiskClean','BtnDiskDism','BtnScanFiles','BtnScanFolders',
-                     'BtnTweakApply','BtnPrivApply','BtnDebloatApply','BtnAppsUninstall','BtnAppsClearCache','BtnEsetApply','BtnEsetTest','BtnEsetRemove',
-                     'BtnStoreOpenWeb','BtnStoreUninstall','BtnStoreSelectAll',
-                     'BtnStartupScan','BtnStartupDisable','BtnProcScan','BtnProcKill','BtnProcBlock',
-                     'BtnZenSet','BtnFastDisable','BtnUndoAll','BtnDeleteBig',
-                     'BtnVortexScan','BtnVortexRemove','BtnVortexFullClean','BtnVortexSkyrimClean',
-                     'BtnVaultUnlock','BtnVaultLock','BtnVaultAdd','BtnGenPassword','BtnVaultDelete')) {
-        if ($ui[$b]) { $ui[$b].IsEnabled = -not $Busy }
+    # Mientras corre una tarea se desactiva cada pagina entera, y con ella todos
+    # sus botones (una lista a mano siempre se dejaba alguno). El registro sigue
+    # abierto para ver el progreso; de el solo se bloquea «Revertir todo». No se
+    # toca el IsEnabled de cada boton, asi que al terminar cada uno recupera su
+    # propio estado (BtnZenSet sigue apagado si Zen no esta instalado).
+    if ($pages) {
+        foreach ($k in $pages.Keys) {
+            if ($k -ne 'Log' -and $pages[$k]) { $pages[$k].IsEnabled = -not $Busy }
+        }
     }
+    if ($ui.BtnUndoAll) { $ui.BtnUndoAll.IsEnabled = -not $Busy }
     if (-not $Busy) { $ui.PbMain.Value = 0 }
 }
 
@@ -569,7 +571,9 @@ $ui.BtnTweakApply.Add_Click({
     }
 })
 
-$ui.BtnRestartExplorer.Add_Click({ [void](Restart-EmiExplorer) })
+$ui.BtnRestartExplorer.Add_Click({
+    Start-EmiWork -Label 'Reiniciando el Explorador...' -Work { return (Restart-EmiExplorer) }
+})
 
 # ======================================================================
 #                            PRIVACIDAD
@@ -1152,7 +1156,11 @@ $ui.BtnFastDisable.Add_Click({
 })
 
 $ui.BtnFastEnable.Add_Click({
-    [void](Enable-EmiFastStartup); Update-EmiSystemPage; Update-EmiHome
+    # En segundo plano y por la cola de tareas: escribir en el diario desde la
+    # UI mientras otra tarea lo reescribe perdia entradas
+    Start-EmiWork -Label 'Reactivando inicio rapido...' -Work { return (Enable-EmiFastStartup) } -OnDone {
+        Update-EmiSystemPage; Update-EmiHome
+    }
 })
 
 # ======================================================================
