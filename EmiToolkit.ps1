@@ -363,7 +363,7 @@ function Update-EmiHome {
     $ui.TbUndoCount.Text = @(Get-EmiJournal).Count.ToString() + ' cambios registrados'
 
     $ui.TbAdminBadge.Text = if (Test-EmiAdmin) { 'Ejecutando como administrador.' }
-                            else { 'SIN administrador: cierra y usa AnotherToolbox.cmd.' }
+                            else { 'SIN administrador: cierra y abre EmiToolkit.cmd.' }
 }
 
 function Update-EmiSystemPage {
