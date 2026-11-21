@@ -130,6 +130,43 @@ $script:JunkTasks = @(
     @{ P='\Microsoft\Windows\Retail Demo\';            N='CleanupOfflineContent' }
 )
 
+$script:ModernStandby = $null
+
+function Test-EmiS0InPowercfg {
+    <#  Logica pura sobre la salida de powercfg /a: primero la cabecera, luego
+        los estados disponibles y, tras una linea en blanco, los que no lo
+        estan. Cambia el idioma, no la forma: se busca S0 en el primer bloque. #>
+    param([string[]] $Lines)
+    $started = $false
+    foreach ($l in $Lines) {
+        if (-not $started) { if ("$l".Trim()) { $started = $true }; continue }
+        if (-not "$l".Trim()) { break }
+        if ($l -match '\bS0\b') { return $true }
+    }
+    return $false
+}
+
+function Test-EmiModernStandby {
+    <#  Cierto si el equipo usa Modern Standby (S0 Low Power Idle). $false si
+        no se puede saber. Se calcula una vez. #>
+    if ($null -ne $script:ModernStandby) { return $script:ModernStandby }
+    $r = $false
+    try { $r = Test-EmiS0InPowercfg -Lines @(& powercfg.exe /a 2>$null) } catch { }
+    $script:ModernStandby = [bool]$r
+    return $script:ModernStandby
+}
+
+function Get-EmiReservedStorageState {
+    <#  'Enabled', 'Disabled' o $null. Con el cmdlet de DISM: la salida de
+        dism.exe cambia con el idioma. #>
+    try {
+        if (Get-Command Get-WindowsReservedStorageState -ErrorAction SilentlyContinue) {
+            return [string](Get-WindowsReservedStorageState -ErrorAction Stop).ReservedStorageState
+        }
+    } catch { }
+    return $null
+}
+
 function Invoke-EmiTweak {
     <#  Aplica una optimizacion concreta. Devuelve el numero de cambios. #>
     param([Parameter(Mandatory)][string] $Id)
@@ -201,13 +238,13 @@ function Invoke-EmiTweak {
         }
 
         'Context' {
-            $k = 'HKCU:\SOFTWARE\CLASSES\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32'
-            try {
-                if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null }
-                Set-ItemProperty -LiteralPath $k -Name '(default)' -Value '' -Force
-                Add-EmiJournalEntry @{ Kind='Registry'; Path=$k; Name='(default)'; Existed=$false; Module=$M }
+            # El menu clasico sale si existe la clave con (predeterminado) vacio.
+            # Set-EmiRegistry anota la clave {86ca1aa0} si la crea (Revertir la
+            # quita entera) y no toca ni anota nada si ya tenias el menu clasico.
+            if (Set-EmiRegistry 'HKCU:\SOFTWARE\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32' '(default)' '' String $M) {
+                Write-EmiLog 'Menu contextual clasico activado (se ve al reiniciar el Explorador).' Ok
                 $n++
-            } catch { }
+            }
         }
 
         'Explorer' {
@@ -232,25 +269,58 @@ function Invoke-EmiTweak {
         }
 
         'NetworkOpt' {
-            try {
-                & netsh.exe int tcp set global autotuninglevel=normal | Out-Null
-                Write-EmiLog 'Autotuning TCP en normal.' Ok; $n++
-            } catch { }
+            # Autotuning: normal es el valor de fabrica. Solo se cambia si estaba
+            # en otro nivel, y se anota cual para que Revertir lo devuelva.
+            $lvl = $null
+            try { $lvl = [string](Get-NetTCPSetting -SettingName Internet -ErrorAction Stop | Select-Object -First 1).AutoTuningLevelLocal } catch { }
+            if (-not $lvl) { Write-EmiLog 'No se pudo leer el autotuning de TCP: no se toca.' Warn }
+            elseif ($lvl -eq 'Normal') { Write-EmiLog 'El autotuning de TCP ya estaba en normal.' Ok }
+            elseif ($lvl.ToLowerInvariant() -notin @('disabled', 'restricted', 'highlyrestricted', 'experimental')) {
+                Write-EmiLog "Autotuning de TCP en un nivel desconocido ($lvl): no se toca." Warn
+            }
+            else {
+                & netsh.exe int tcp set global autotuninglevel=normal 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    Add-EmiJournalEntry @{ Kind='Command'; Action='TcpAutotuning'; OldLevel=$lvl.ToLowerInvariant(); Module=$M }
+                    Write-EmiLog "Autotuning de TCP: de $lvl a normal." Ok; $n++
+                } else { Write-EmiLog "netsh devolvio $LASTEXITCODE`: el autotuning sigue igual." Warn }
+            }
             if (Set-EmiRegistry 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' 'NetworkThrottlingIndex' 0xffffffff DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' 'SystemResponsiveness' 10 DWord $M) { $n++ }
         }
 
         'PowerPlan' {
-            try {
-                $guid = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'   # Alto rendimiento
-                & powercfg.exe -duplicatescheme $guid 2>$null | Out-Null
-                & powercfg.exe -setactive $guid 2>$null | Out-Null
-                if ($LASTEXITCODE -eq 0) { Write-EmiLog 'Plan de energia: Alto rendimiento.' Ok; $n++ }
-                else {
-                    & powercfg.exe -setactive SCHEME_MIN 2>$null | Out-Null
-                    Write-EmiLog 'Plan de energia ajustado.' Ok; $n++
-                }
-            } catch { Write-EmiLog "Plan de energia: $($_.Exception.Message)" Warn }
+            # Con Modern Standby (S0) solo existe Equilibrado: el plan Alto
+            # rendimiento no aparece o no hace nada (Microsoft Q&A, "Windows 11
+            # High Performance power plan"). Ahi se usa el modo de energia.
+            if (Test-EmiModernStandby) {
+                Write-EmiLog 'Este equipo usa Modern Standby y solo tiene el plan Equilibrado. Usa Configuracion > Sistema > Energia > Modo de energia. No se cambia nada.' Warn
+                break
+            }
+            $hp   = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'   # Alto rendimiento
+            $mine = Get-EmiPowerSchemeGuid                    # copia propia, GUID fijo
+            $prev = Get-EmiActivePowerScheme
+            if (-not $prev) { Write-EmiLog 'No se pudo leer el plan de energia activo: no se cambia nada.' Warn; break }
+            if ($prev -in @($hp, $mine)) { Write-EmiLog 'El plan Alto rendimiento ya estaba activo.' Ok; break }
+            $list = (& powercfg.exe /list 2>$null) -join "`n"
+            $target = $null; $created = $null
+            if ($list -match $hp) { $target = $hp }
+            elseif ($list -match $mine) { $target = $mine }
+            else {
+                # Una sola copia, siempre con el mismo GUID: antes se duplicaba en cada ejecucion
+                & powercfg.exe /duplicatescheme $hp $mine 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) { $target = $mine; $created = $mine }
+            }
+            if (-not $target) { Write-EmiLog 'Este equipo no tiene el plan Alto rendimiento: no se cambia nada.' Warn; break }
+            & powercfg.exe /setactive $target 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0 -or (Get-EmiActivePowerScheme) -ne $target) {
+                Write-EmiLog 'No se pudo activar el plan Alto rendimiento: sigue el plan anterior.' Warn
+                if ($created) { & powercfg.exe /delete $created 2>&1 | Out-Null }
+                break
+            }
+            Add-EmiJournalEntry @{ Kind='Command'; Action='PowerScheme'; OldGuid=$prev; CreatedGuid=$created; Module=$M }
+            Write-EmiLog 'Plan de energia: Alto rendimiento (Revertir vuelve al anterior).' Ok
+            $n++
         }
 
         'SysMain'  { if (Set-EmiService -Name 'SysMain' -StartupType Disabled -Stop -Module $M) { $n++ } }
@@ -270,22 +340,31 @@ function Invoke-EmiTweak {
         }
 
         'Hibernate' {
-            try {
-                # Solo se apunta si estaba activa: deshacer no debe encenderla si ya estaba apagada
-                $hib = (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name 'HibernateEnabled' -ErrorAction SilentlyContinue).HibernateEnabled
-                & powercfg.exe /hibernate off | Out-Null
-                Write-EmiLog 'Hibernacion desactivada (hiberfil.sys liberado).' Ok
-                if ($hib -ne 0) { Add-EmiJournalEntry @{ Kind='Command'; Action='Hibernate'; Module=$M } }
-                $n++
-            } catch { Write-EmiLog "Hibernacion: $($_.Exception.Message)" Warn }
+            try { if (Disable-EmiHibernation -Module $M) { $n++ } }
+            catch { Write-EmiLog "Hibernacion: $($_.Exception.Message)" Warn }
         }
 
         'Reserved' {
+            # Se mira el estado antes y despues: con una actualizacion en curso
+            # Windows no deja cambiarlo, y antes se daba por hecho igualmente.
+            $st = Get-EmiReservedStorageState
+            if ($st -eq 'Disabled') { Write-EmiLog 'El almacenamiento reservado ya estaba desactivado.' Ok; break }
+            if ($st -ne 'Enabled') { Write-EmiLog 'No se pudo leer el estado del almacenamiento reservado: no se toca.' Warn; break }
+            $ok = $false
             try {
-                & dism.exe /Online /Set-ReservedStorageState /State:Disabled 2>&1 | Out-Null
-                Write-EmiLog 'Almacenamiento reservado desactivado.' Ok
-                $n++
+                if (Get-Command Set-WindowsReservedStorageState -ErrorAction SilentlyContinue) {
+                    Set-WindowsReservedStorageState -State Disabled -ErrorAction Stop | Out-Null
+                } else {
+                    & dism.exe /Online /Set-ReservedStorageState /State:Disabled /NoRestart 2>&1 | Out-Null
+                    if ($LASTEXITCODE -ne 0) { throw "DISM devolvio $LASTEXITCODE" }
+                }
+                $ok = ((Get-EmiReservedStorageState) -ne 'Enabled')
             } catch { Write-EmiLog "Almacenamiento reservado: $($_.Exception.Message)" Warn }
+            if ($ok) {
+                Add-EmiJournalEntry @{ Kind='Command'; Action='ReservedStorage'; OldState='Enabled'; Module=$M }
+                Write-EmiLog 'Almacenamiento reservado desactivado (Revertir lo reactiva).' Ok
+                $n++
+            } else { Write-EmiLog 'El almacenamiento reservado sigue activo (Windows no deja cambiarlo con una actualizacion pendiente).' Warn }
         }
 
         # --- Win11Debloat: UI/UX, Update, Dev CLI, AI services ---

@@ -810,6 +810,57 @@ function Disable-EmiHibernation {
     return $true
 }
 
+# ------------------------- Plan de energia ---------------------------
+
+function Get-EmiPowerSchemeGuid { return $script:EmiPowerSchemeGuid }
+
+function Get-EmiActivePowerScheme {
+    <#  GUID del plan activo (powercfg /getactivescheme; el texto cambia de
+        idioma, el GUID no), o $null. #>
+    try {
+        $t = (& powercfg.exe /getactivescheme 2>$null) -join ' '
+        if ($LASTEXITCODE -eq 0 -and $t -match '([0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})') { return $Matches[1].ToLowerInvariant() }
+    } catch { }
+    return $null
+}
+
+# ------------------------------- AppX --------------------------------
+
+function Test-EmiAppxKeptOnDisk {
+    <#  Logica pura. Al quitar un paquete al usuario actual y su copia
+        aprovisionada, Windows borra sus archivos si ningun otro usuario lo
+        tiene instalado; solo si otro lo tiene se puede volver a registrar
+        desde Revertir. $UserInfo = PackageUserInformation de Get-AppxPackage
+        -AllUsers (UserSecurityId.Sid e InstallState). #>
+    param([object[]] $UserInfo, [string] $CurrentSid)
+    foreach ($u in @($UserInfo)) {
+        if (-not $u) { continue }
+        $id  = $u.UserSecurityId
+        $sid = if ($id -and $id.PSObject.Properties['Sid']) { [string]$id.Sid } else { [string]$id }
+        if ($sid -and $sid -ne $CurrentSid -and [string]$u.InstallState -eq 'Installed') { return $true }
+    }
+    return $false
+}
+
+function Get-EmiAppxReversibility {
+    <#  Para cada Name de paquete, si se podra volver a instalar desde Revertir
+        tras quitarlo. Una sola llamada a Get-AppxPackage -AllUsers (necesita
+        administrador); si falla, se da por no reversible. #>
+    param([string[]] $Names)
+    $out = @{}
+    foreach ($n in $Names) { $out[$n] = $false }
+    $sid = $null
+    try { $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value } catch { }
+    try {
+        foreach ($p in @(Get-AppxPackage -AllUsers -ErrorAction Stop)) {
+            if ($out.ContainsKey([string]$p.Name) -and (Test-EmiAppxKeptOnDisk -UserInfo @($p.PackageUserInformation) -CurrentSid $sid)) {
+                $out[[string]$p.Name] = $true
+            }
+        }
+    } catch { }
+    return $out
+}
+
 # ------------------------- Registro con undo -------------------------
 
 # Claves que Windows protege con UCPD (User Choice Protection Driver, desde
@@ -913,7 +964,7 @@ function Set-EmiRegistry {
     param(
         [Parameter(Mandatory)][string] $Path,
         [Parameter(Mandatory)][string] $Name,
-        [Parameter(Mandatory)]$Value,
+        [Parameter(Mandatory)][AllowEmptyString()]$Value,
         [ValidateSet('DWord', 'QWord', 'String', 'ExpandString', 'MultiString', 'Binary')]
         [string] $Type = 'DWord',
         [string] $Module = 'General'

@@ -138,19 +138,22 @@ function Get-EmiPackageCacheSize {
 # Lista de apps instaladas para la UI
 # ============================================================
 function Get-EmiInstalledApps {
-    $pkgs = @(Get-AppxPackage -ErrorAction SilentlyContinue)
+    $pkgs = @(Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { -not (Test-EmiProtectedAppx -Package $_) })
     $items = New-Object System.Collections.ArrayList
+    # Se dice antes de quitarla si Revertir podra devolverla (Reversible/Note)
+    $rev = Get-EmiAppxReversibility -Names @($pkgs | ForEach-Object { [string]$_.Name })
 
     foreach ($pkg in $pkgs) {
-        if (Test-EmiProtectedAppx -Package $pkg) { continue }
-
         $cacheSize = Get-EmiPackageCacheSize -PackageFamilyName $pkg.PackageFamilyName
+        $canBack = [bool]$rev[[string]$pkg.Name]
         $items.Add([pscustomobject]@{
-            Id        = $pkg.PackageFullName
-            Name      = $pkg.Name
-            Detail    = $pkg.InstallLocation
-            Version   = $pkg.Version
-            CacheSize = $cacheSize
+            Id         = $pkg.PackageFullName
+            Name       = $pkg.Name
+            Detail     = $pkg.InstallLocation
+            Version    = $pkg.Version
+            CacheSize  = $cacheSize
+            Reversible = $canBack
+            Note       = if ($canBack) { 'Se puede reinstalar desde Revertir' } else { 'Revertir no la puede devolver: solo reinstalandola desde Microsoft Store (si sigue alli)' }
         }) | Out-Null
     }
     return $items
@@ -172,9 +175,11 @@ function Remove-EmiInstalledApp {
         return $false
     }
 
+    $canBack = [bool](Get-EmiAppxReversibility -Names @([string]$pkg.Name))[[string]$pkg.Name]
     try {
         Remove-AppxPackage -Package $pkg.PackageFullName -ErrorAction Stop
         Write-EmiLog "$($pkg.Name) removida (usuario actual)." Ok
+        if (-not $canBack) { Write-EmiLog "$($pkg.Name) no se podra devolver desde Revertir: si la necesitas, reinstalala desde Microsoft Store." Warn }
 
         $prov = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
                 Where-Object { $_.DisplayName -eq $pkg.Name }
@@ -189,6 +194,7 @@ function Remove-EmiInstalledApp {
             Action            = 'AppxReinstall'
             PackageName       = $pkg.Name
             PackageFamilyName = $pkg.PackageFamilyName
+            Reversible        = $canBack
             Module            = 'Apps'
         }
         return $true
