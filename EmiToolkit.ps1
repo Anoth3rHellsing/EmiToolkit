@@ -983,8 +983,8 @@ $ui.BtnOneClick.Add_Click({
         $lst = { param($names) if (@($names).Count -eq 0) { '   (nada)' } else { (@($names) | ForEach-Object { '   - ' + $_ }) -join "`n" } }
 
         $b  = '1. Limpieza de disco: ' + @($plan.CleanNames).Count + ' ubicaciones. NO se puede deshacer.' + $nl + (& $lst $plan.CleanNames) + $nl + $nl
-        $b += '2. Optimizaciones de Windows 11: ' + @($plan.TweakNames).Count + ' ajustes (reversibles desde Historial y deshacer).' + $nl + (& $lst $plan.TweakNames) + $nl + $nl
-        $b += '3. Telemetría y privacidad: ' + @($plan.PrivNames).Count + ' ajustes (reversibles desde Historial y deshacer).' + $nl + (& $lst $plan.PrivNames) + $nl + $nl
+        $b += '2. Optimizaciones de Windows 11: ' + @($plan.TweakNames).Count + ' ajustes (se pueden deshacer desde Historial y deshacer; los que no tienen efecto en tu edición de Windows se omiten).' + $nl + (& $lst $plan.TweakNames) + $nl + $nl
+        $b += '3. Telemetría y privacidad: ' + @($plan.PrivNames).Count + ' ajustes (se pueden deshacer desde Historial y deshacer; los que no tienen efecto en tu edición de Windows se omiten).' + $nl + (& $lst $plan.PrivNames) + $nl + $nl
         $b += '4. Programas de arranque: se quitan ' + @($plan.Startup).Count + ' (se pueden reactivar en Arranque).' + $nl + (& $lst @($plan.Startup | ForEach-Object { $_.Name })) + $nl + $nl
         $b += '5. Inicio rápido: ' + $(if ($plan.FastOn) { 'se desactiva (reversible).' } else { 'ya está desactivado, no se toca.' }) + $nl + $nl
         $b += '6. Firewall de ESET (KB332): ' + $(if ($plan.Eset) { [string]@($plan.EsetGroups).Count + ' grupos de reglas (se pueden quitar en ESET).' + $nl + (& $lst $plan.EsetGroups) } else { 'omitido.' }) + $nl + $nl
@@ -1156,7 +1156,7 @@ $ui.BtnDiskClean.Add_Click({
 })
 
 $ui.BtnDiskDism.Add_Click({
-    $dismMsg = 'Se limpiarán las versiones antiguas de los componentes de Windows (WinSxS) con DISM.' + "`n`n" + 'Puede tardar varios minutos y NO se puede deshacer: después ya no podrás desinstalar las actualizaciones de Windows que ya están instaladas.' + "`n`n" + '¿Continuar?'
+    $dismMsg = 'Se limpiarán las versiones antiguas de los componentes de Windows (WinSxS) con DISM.' + "`n`n" + 'Primero se analiza y solo se limpia si Windows lo recomienda. Puede tardar varios minutos y no se puede deshacer, pero las actualizaciones instaladas se podrán seguir desinstalando (no se usa /ResetBase).' + "`n`n" + '¿Continuar?'
     $ans = [System.Windows.MessageBox]::Show($dismMsg, 'Limpiar componentes (DISM)', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
     Start-EmiWork -Label 'DISM: limpiando componentes...' -Work { return (Invoke-EmiComponentCleanup) } -OnDone {
@@ -1483,8 +1483,9 @@ $ui.BtnAppsUninstall.Add_Click({
         [System.Windows.MessageBox]::Show('Analiza primero y marca que apps desinstalar.','Another''s Toolbox','OK','Information') | Out-Null
         return
     }
-    $names = ($sel | ForEach-Object { $_.Name }) -join "`n - "
-    $uninstAppsMsg = 'Se desinstalarán ' + $sel.Count + ' apps del usuario actual:' + "`n`n" + ' - ' + $names + "`n`n" + 'La app puede volver a instalarse desde Microsoft Store o con el comando registrado en Deshacer. ¿Continuar?'
+    # Cada app dice si Deshacer puede devolverla (Get-EmiInstalledApps: Reversible/Note): no se promete lo que no se puede.
+    $names = ($sel | ForEach-Object { $_.Name + $(if ($_.Reversible -eq $false) { '  [Deshacer no la devuelve: solo desde Microsoft Store]' } else { '' }) }) -join "`n - "
+    $uninstAppsMsg = 'Se desinstalarán ' + $sel.Count + ' apps del usuario actual:' + "`n`n" + ' - ' + $names + "`n`n" + 'Las que no llevan aviso se pueden reinstalar desde Historial y deshacer; las marcadas, solo desde Microsoft Store. ¿Continuar?'
     $ans = [System.Windows.MessageBox]::Show($uninstAppsMsg, 'Confirmar desinstalación', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
 
