@@ -9,7 +9,8 @@ rem ====================================================================
 setlocal
 set "HERE=%~dp0"
 set "PS1=%HERE%EmiToolkit.ps1"
-set "LOGDIR=%HERE%Data"
+rem El log va al perfil del usuario: en %ProgramFiles% la carpeta de la app no es escribible sin elevar
+set "LOGDIR=%LOCALAPPDATA%\EmiToolkit"
 
 rem Crear carpeta Data si no existe
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"

@@ -48,6 +48,110 @@ if (-not $isAdmin -and -not $NoElevate) {
     }
 }
 
+# --------------------- Confianza en la carpeta -------------------------
+# Este proceso corre como administrador y carga codigo (modulos .psm1 y el
+# XAML) de su propia carpeta. Si un usuario sin privilegios puede escribir en
+# ella (C:\EmiToolkit copiado con robocopy, Descargas, Escritorio, OneDrive,
+# una carpeta compartida), puede meter codigo que se ejecutara como
+# administrador la proxima vez que alguien abra la herramienta.
+function Get-EmiFolderTrustIssues {
+    param([string] $Base)
+    $issues = New-Object System.Collections.ArrayList
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { return @() }
+    # SYSTEM, Administradores, CREATOR OWNER y TrustedInstaller
+    $trusted = @('S-1-5-18', 'S-1-5-32-544', 'S-1-3-0', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+    $mask = 0x2 -bor 0x4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000
+    $targets = @($Base, (Join-Path $Base 'Modules'), (Join-Path $Base 'UI'))
+    $targets += @(Get-ChildItem -LiteralPath $Base -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.ps1', '.cmd' } | ForEach-Object FullName)
+    $targets += @(Get-ChildItem -LiteralPath (Join-Path $Base 'Modules') -Filter '*.psm1' -File -Force -ErrorAction SilentlyContinue | ForEach-Object FullName)
+    $targets += @(Get-ChildItem -LiteralPath (Join-Path $Base 'UI') -Filter '*.xaml' -File -Force -ErrorAction SilentlyContinue | ForEach-Object FullName)
+    foreach ($t in $targets) {
+        try {
+            $acl = Get-Acl -LiteralPath $t -ErrorAction Stop
+            $who = New-Object System.Collections.ArrayList
+            $own = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+            if ($trusted -notcontains $own) { [void]$who.Add("propietario $own") }
+            foreach ($r in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+                if ($r.AccessControlType -ne 'Allow') { continue }
+                if (($r.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
+                if ($trusted -contains $r.IdentityReference.Value) { continue }
+                if (([int64]$r.FileSystemRights -band $mask) -ne 0) {
+                    $n = $r.IdentityReference.Value
+                    try { $n = $r.IdentityReference.Translate([Security.Principal.NTAccount]).Value } catch { }
+                    if (-not $who.Contains($n)) { [void]$who.Add($n) }
+                }
+            }
+            if ($who.Count -gt 0) { [void]$issues.Add(('{0}: {1}' -f $t, ($who -join ', '))) }
+        } catch { [void]$issues.Add("$t : no se pudo leer la ACL ($($_.Exception.Message))") }
+    }
+    return $issues.ToArray()
+}
+
+function Install-EmiProtectedCopy {
+    <#  Copia la herramienta a %ProgramFiles%\EmiToolkit (hereda la ACL de
+        Program Files: solo administradores escriben) y devuelve el .ps1 nuevo. #>
+    param([string] $From)
+    $dest = Join-Path $env:ProgramFiles 'EmiToolkit'
+    if (-not (Test-Path -LiteralPath $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
+    $bad = @(Get-EmiFolderTrustIssues $dest | Where-Object { $_ -like "${dest}:*" })
+    if ($bad.Count -gt 0) { throw "La carpeta $dest ya existe y no esta protegida: $($bad -join '; ')" }
+    foreach ($sub in @('Modules', 'UI')) {
+        $d = Join-Path $dest $sub
+        if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+    }
+    Get-ChildItem -LiteralPath $From -File | Where-Object { $_.Extension -in '.ps1', '.cmd', '.md', '.txt' } |
+        ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $dest -Force -ErrorAction Stop }
+    Get-ChildItem -LiteralPath (Join-Path $From 'Modules') -Filter '*.psm1' -File |
+        ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $dest 'Modules') -Force -ErrorAction Stop }
+    Get-ChildItem -LiteralPath (Join-Path $From 'UI') -Filter '*.xaml' -File |
+        ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $dest 'UI') -Force -ErrorAction Stop }
+    # Propietario Administradores en todo (segun la directiva, los archivos
+    # creados por un administrador pueden quedar a nombre de su cuenta)
+    $admins = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+    foreach ($i in @(Get-Item -LiteralPath $dest) + @(Get-ChildItem -LiteralPath $dest -Recurse -Force)) {
+        try { $a = Get-Acl -LiteralPath $i.FullName; $a.SetOwner($admins); Set-Acl -LiteralPath $i.FullName -AclObject $a } catch { }
+    }
+    $left = @(Get-EmiFolderTrustIssues $dest)
+    if ($left.Count -gt 0) { throw "La copia en $dest sigue siendo modificable por otros usuarios: $($left -join '; ')" }
+    return (Join-Path $dest 'EmiToolkit.ps1')
+}
+
+$script:TrustNote = $null
+if ($isAdmin) {
+    $trustIssues = @(Get-EmiFolderTrustIssues $Root)
+    if ($trustIssues.Count -gt 0) {
+        [void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
+        $shown = ($trustIssues | Select-Object -First 6) -join "`n"
+        if ($trustIssues.Count -gt 6) { $shown += "`n... y $($trustIssues.Count - 6) mas" }
+        $msg = 'AVISO DE SEGURIDAD' + "`n`n" +
+               'Another''s Toolbox se ejecuta como administrador, pero su carpeta la pueden modificar usuarios sin privilegios:' + "`n`n" +
+               $shown + "`n`n" +
+               'Cualquiera de esos usuarios (o un programa malicioso que corra con su cuenta) podria cambiar el codigo y conseguir permisos de administrador la proxima vez que se abra la herramienta.' + "`n`n" +
+               'Si = copiarla a ' + (Join-Path $env:ProgramFiles 'EmiToolkit') + ' (solo administradores pueden escribir ahi) y abrirla desde alli. Recomendado.' + "`n" +
+               'No = continuar de todas formas desde esta carpeta (queda anotado en el registro).' + "`n" +
+               'Cancelar = salir.' + "`n`n" +
+               'Si sospechas que alguien ya ha tocado estos archivos, descarga de nuevo la herramienta antes de copiarla.'
+        $ans = [System.Windows.Forms.MessageBox]::Show($msg, 'Another''s Toolbox - carpeta no protegida', 'YesNoCancel', 'Warning', 'Button1')
+        if ($ans -eq 'Yes') {
+            try {
+                $newPs1 = Install-EmiProtectedCopy $Root
+                Start-Process -FilePath 'powershell.exe' -WorkingDirectory (Split-Path $newPs1) -ArgumentList @(
+                    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-WindowStyle', 'Hidden', '-File', "`"$newPs1`""
+                )
+                exit
+            } catch {
+                [System.Windows.Forms.MessageBox]::Show('No se pudo copiar a Program Files: ' + $_.Exception.Message + "`n`nLa herramienta se cerrara.",
+                    'Another''s Toolbox', 'OK', 'Error') | Out-Null
+                exit 1
+            }
+        } elseif ($ans -eq 'No') {
+            $script:TrustNote = 'Se continuo desde una carpeta modificable por usuarios sin privilegios: ' + ($trustIssues -join ' | ')
+        } else {
+            exit
+        }
+    }
+}
+
 try {
 # --------------------------- Ensamblados ------------------------------
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Xaml, System.Windows.Forms
@@ -55,9 +159,19 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
 # ---------------------------- Modulos ---------------------------------
 $ModuleDir   = Join-Path $Root 'Modules'
 $ModuleNames = @('EmiCore', 'EmiDisk', 'EmiTweaks', 'EmiPrivacy', 'EmiPrivRecs', 'EmiVault', 'EmiDebloat', 'EmiApps', 'EmiFirewall', 'EmiStartup', 'EmiProcess', 'EmiVortex', 'EmiSystem')
-foreach ($m in $ModuleNames) { Import-Module (Join-Path $ModuleDir "$m.psm1") -Force -DisableNameChecking }
+# Cada modulo se lee de disco UNA vez, aqui, justo despues de comprobar la
+# carpeta. Las tareas en segundo plano importan este mismo texto en memoria
+# (Preamble) en vez de volver a leer los .psm1: asi nadie puede cambiar el
+# codigo a mitad de sesion.
+$script:ModuleCode = @{}
+foreach ($m in $ModuleNames) {
+    $code = [System.IO.File]::ReadAllText((Join-Path $ModuleDir "$m.psm1"))
+    $script:ModuleCode[$m] = $code
+    New-Module -Name $m -ScriptBlock ([scriptblock]::Create($code)) | Import-Module -Force -DisableNameChecking
+}
 
 Initialize-EmiCore -RootPath $Root
+if ($script:TrustNote) { Write-EmiLog $script:TrustNote Warn }
 Initialize-EmiVault
 Write-EmiLog ('Another''s Toolbox iniciado en ' + $env:COMPUTERNAME + ' por ' + $env:USERNAME + '.') Ok
 if (-not $isAdmin) { Write-EmiLog 'Sin permisos de administrador: muchas acciones estaran limitadas.' Warn }
@@ -127,9 +241,9 @@ $busyAmber = [Windows.Media.BrushConverter]::new().ConvertFrom('#FFE08C1E')
 $script:Preamble = @'
 $ErrorActionPreference = 'Continue'
 foreach ($m in $EmiModuleNames) {
-    Import-Module (Join-Path $EmiModuleDir "$m.psm1") -Force -DisableNameChecking
+    New-Module -Name $m -ScriptBlock ([scriptblock]::Create($EmiModuleCode[$m])) | Import-Module -Force -DisableNameChecking
 }
-Initialize-EmiCore -RootPath $EmiRootPath
+Initialize-EmiCore -RootPath $EmiRootPath -DataPath $EmiDataPath
 '@
 
 function Set-EmiBusy {
@@ -172,7 +286,8 @@ function Start-EmiWork {
         $rs.SessionStateProxy.SetVariable('EmiSync', $global:EmiSync)
         $rs.SessionStateProxy.SetVariable('P', $Parameters)
         $rs.SessionStateProxy.SetVariable('EmiRootPath', $Root)
-        $rs.SessionStateProxy.SetVariable('EmiModuleDir', $ModuleDir)
+        $rs.SessionStateProxy.SetVariable('EmiModuleCode', $script:ModuleCode)
+        $rs.SessionStateProxy.SetVariable('EmiDataPath', (Get-EmiDataDir))
         $rs.SessionStateProxy.SetVariable('EmiModuleNames', [string[]]$ModuleNames)
 
         $ps = [powershell]::Create()
