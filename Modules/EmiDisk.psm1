@@ -209,6 +209,9 @@ function Invoke-EmiCleanup {
     $i = 0
 
     foreach ($t in $targets) {
+        # Cancelar cooperativo (Test-EmiCancel, rama de interfaz): solo entre
+        # elementos, nunca entre escribir un cambio y anotarlo
+        if ((Get-Command Test-EmiCancel -ErrorAction SilentlyContinue) -and (Test-EmiCancel)) { Write-EmiLog 'Cancelado: se deja de limpiar aqui.' Warn; break }
         $i++
         Set-EmiStatus "Limpiando: $($t.Name)" ([int](($i / [math]::Max(1, $targets.Count)) * 100))
         Write-EmiLog "Limpiando $($t.Name)..." Step

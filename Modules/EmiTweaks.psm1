@@ -515,6 +515,9 @@ function Invoke-EmiTweakSet {
     $i     = 0
 
     foreach ($id in $Ids) {
+        # Cancelar cooperativo (Test-EmiCancel, rama de interfaz): solo entre
+        # elementos, nunca entre escribir un cambio y anotarlo
+        if ((Get-Command Test-EmiCancel -ErrorAction SilentlyContinue) -and (Test-EmiCancel)) { Write-EmiLog 'Cancelado: lo aplicado hasta aqui queda anotado y se puede deshacer.' Warn; break }
         $i++
         $tw = $all | Where-Object { $_.Id -eq $id }
         $label = if ($tw) { $tw.Name } else { $id }

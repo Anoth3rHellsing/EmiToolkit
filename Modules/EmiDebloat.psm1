@@ -151,6 +151,9 @@ function Invoke-EmiDebloatSet {
     $changes = 0
 
     foreach ($id in $Ids) {
+        # Cancelar cooperativo (Test-EmiCancel, rama de interfaz): solo entre
+        # elementos, nunca entre escribir un cambio y anotarlo
+        if ((Get-Command Test-EmiCancel -ErrorAction SilentlyContinue) -and (Test-EmiCancel)) { Write-EmiLog 'Cancelado: lo aplicado hasta aqui queda anotado y se puede deshacer.' Warn; break }
         $done++
         Set-EmiStatus "Aplicando debloat ($done/$total): $id" ([int](($done / $total) * 100))
         $changes += Invoke-EmiDebloatItem -Id $id
