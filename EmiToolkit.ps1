@@ -158,7 +158,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
 
 # ---------------------------- Modulos ---------------------------------
 $ModuleDir   = Join-Path $Root 'Modules'
-$ModuleNames = @('EmiCore', 'EmiDisk', 'EmiTweaks', 'EmiPrivacy', 'EmiPrivRecs', 'EmiVault', 'EmiDebloat', 'EmiApps', 'EmiFirewall', 'EmiStartup', 'EmiProcess', 'EmiVortex', 'EmiSystem')
+$ModuleNames = @('EmiCore', 'EmiDisk', 'EmiTweaks', 'EmiPrivacy', 'EmiPrivRecs', 'EmiVault', 'EmiDebloat', 'EmiApps', 'EmiFirewall', 'EmiStartup', 'EmiProcess', 'EmiVortex', 'EmiSystem', 'EmiHealth')
 # Cada modulo se lee de disco UNA vez, aqui, justo despues de comprobar la
 # carpeta. Las tareas en segundo plano importan este mismo texto en memoria
 # (Preamble) en vez de volver a leer los .psm1: asi nadie puede cambiar el
@@ -713,6 +713,8 @@ function Start-EmiMaintenance {
         $freed = 0
         $rp = $null
         if ($P.Restore) { $rp = [bool](@(New-EmiRestorePoint)[-1]) }
+        # Tanda 2 · Informe de salud: foto de antes (EmiHealth; nunca lanza)
+        [void](Save-EmiHealthSnapshot -Stage Antes)
 
         Write-EmiLog '=== 1/7  Limpieza de disco ===' Step
         $freed = Invoke-EmiCleanup -Ids $P.CleanIds
@@ -744,6 +746,8 @@ function Start-EmiMaintenance {
             [void](Set-EmiZenDefault)
         } else { Write-EmiLog '=== 7/7  Navegador omitido ===' Info }
 
+        # Tanda 2 · Informe de salud: foto de despues, para el apartado Antes y despues
+        [void](Save-EmiHealthSnapshot -Stage Despues)
         Write-EmiLog "MANTENIMIENTO TERMINADO. Espacio liberado: $(Format-EmiSize $freed)" Ok
         Set-EmiStatus 'Mantenimiento terminado' 100
         return @{ Freed = $freed; Restore = $rp }
@@ -758,6 +762,38 @@ function Start-EmiMaintenance {
         if ($rpFailed) { $extra = 'ATENCION: no se pudo crear el punto de restauracion, asi que no hay uno de antes de estos cambios. Lo registrado se puede revertir desde Registro y deshacer.' + "`n`n" + $extra }
         Show-EmiTaskDone 'Mantenimiento terminado' -Extra $extra -Warn:$rpFailed
     }
+}
+
+# ----------------------------------------------------------------------
+# Tanda 2 · Informe de salud (Modules\EmiHealth.psm1). Enganche minimo: el
+# boton y la casilla de Inicio (UI\MainWindow.xaml). Solo lee; el informe
+# queda en %ProgramData%\EmiToolkit\informes y una copia en Documentos del
+# usuario, que se abre sin elevar.
+$btnHealth = C 'BtnHealthReport'
+if ($btnHealth) {
+    $btnHealth.Add_Click({
+        $chk = C 'ChkHealthWinSxS'
+        Start-EmiWork -Label 'Preparando el informe de salud...' -Parameters @{ WinSxS = [bool]($chk -and $chk.IsChecked) } -Work {
+            return (New-EmiHealthReport -IncludeWinSxS:$P.WinSxS -Open)
+        } -OnDone {
+            param($r)
+            $res = @($r)[-1]
+            if ($res) { $res = $res.PSObject.BaseObject }
+            if (-not ($res -is [hashtable]) -or -not $res.Path) {
+                [System.Windows.MessageBox]::Show('No se pudo crear el informe de salud. Mira el registro.', 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
+                return
+            }
+            $c = $res.Counts
+            $extra = 'Resultado: ' + $c.bien + ' bien, ' + $c.atencion + ' atencion, ' + $c.mal + ' mal, ' + $c.nd + ' sin datos.' + "`n`n"
+            if ($res.UserCopy) {
+                $extra += 'Guardado en Documentos: ' + $res.UserCopy
+                if (-not $res.Opened) { $extra += "`n" + '(No se pudo abrir solo: abrelo desde Documentos.)' }
+            } else {
+                $extra += 'No se pudo dejar una copia en Documentos (' + $res.UserCopyReason + '). Queda en ' + $res.Path + ', que solo pueden leer los administradores.'
+            }
+            Show-EmiTaskDone 'Informe de salud listo' -Extra $extra -Warn:($c.mal -gt 0)
+        }
+    })
 }
 
 # ======================================================================
