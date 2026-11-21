@@ -56,6 +56,40 @@ Al terminar muestra cuánto espacio se liberó, cuántos avisos o errores hubo
 
 ---
 
+## Informe de salud
+
+El botón **Informe de salud** de *Inicio* revisa el equipo **sin cambiar
+nada** y genera un HTML en español con un veredicto (*bien*, *atención*,
+*mal* o *no disponible*) y una línea de «qué hacer» por apartado:
+
+- **Equipo**: edición y versión de Windows, último reinicio, reinicio
+  pendiente e Inicio rápido.
+- **Almacenamiento**: espacio libre de cada unidad fija (aviso por debajo del
+  15 %), estado de los discos físicos (desgaste, temperatura y errores de
+  lectura cuando el disco los da) y, si se marca la casilla, el análisis de
+  WinSxS con DISM (tarda varios minutos).
+- **Batería** (portátiles): capacidad actual frente a la de fábrica y ciclos.
+- **Estabilidad**: índice de confiabilidad de los últimos 30 días, apagados
+  inesperados, pantallazos azules y programas que se cierran solos.
+- **Seguridad**: antivirus (Defender o el que haya, como ESET), firewall,
+  BitLocker, Secure Boot, TPM, UAC y la última actualización instalada.
+- **Arranque**: programas que arrancan con Windows y, si Windows la registra,
+  la duración del último arranque.
+- **Lo que cambió Another's Toolbox**: resumen del diario de deshacer.
+- **Antes y después**: *Optimizar ahora* guarda una foto (espacio libre,
+  programas de arranque, servicios…) antes y después, y el siguiente informe
+  muestra la diferencia.
+
+El informe solo lleva el nombre del equipo: ni usuarios, ni rutas, ni
+números de serie. No usa la red ni carga nada externo. Se guarda en
+`%ProgramData%\EmiToolkit\informes\salud-<fecha>.html` (solo administradores)
+y una copia en **Documentos** del usuario que tiene la sesión abierta, que se
+abre en su navegador sin permisos de administrador. Si no se puede dejar esa
+copia con seguridad (escritorio remoto, Documentos en red o con un enlace),
+queda solo en ProgramData y el mensaje final lo dice.
+
+---
+
 ## Los apartados del modo avanzado
 
 | Apartado | Para qué sirve |
@@ -192,7 +226,9 @@ EmiToolkit\
     EmiStartup.psm1       programas de arranque
     EmiProcess.psm1       procesos y RAM
     EmiSystem.psm1        Zen, inicio rápido, AnyDesk
-  (datos)                 %ProgramData%\EmiToolkit: logs, diario, copia de hosts
+    EmiHealth.psm1        informe de salud (solo lectura)
+  (datos)                 %ProgramData%\EmiToolkit: logs, diario, copia de hosts,
+                          informes de salud (informes\)
                           %LOCALAPPDATA%\EmiToolkit: bóveda de contraseñas
 ```
 
