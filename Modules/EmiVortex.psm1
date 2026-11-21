@@ -332,11 +332,10 @@ function Remove-EmiVortexFull {
                         $removed = 0
                         foreach ($f in $manifest.files) {
                             if ($f.relPath) {
-                                $targetPath = $f.relPath
-                                # Si es ruta relativa al directorio del juego, construir ruta absoluta
+                                # Ruta relativa a la carpeta del juego, sin salir de ella
                                 $gameDir = Split-Path $mp -Parent
-                                $fullTarget = Join-Path $gameDir $targetPath
-                                if (Test-Path -LiteralPath $fullTarget) {
+                                $fullTarget = _Resolve-EmiVortexTarget -GameDir $gameDir -RelPath ([string]$f.relPath)
+                                if ($fullTarget -and (Test-Path -LiteralPath $fullTarget)) {
                                     if (_Test-EmiVortexHardlink -FilePath $fullTarget) {
                                         try {
                                             Remove-Item -LiteralPath $fullTarget -Force -ErrorAction Stop
@@ -395,7 +394,7 @@ function Remove-EmiVortexFull {
             Add-EmiJournalEntry @{ Kind='Registry'; Path=$rk; Name='(clave completa)'; Existed=$true; OldValue=$null; OldType='String'; NewValue=$null; Module='Vortex' }
             try {
                 Remove-Item -LiteralPath $rk -Recurse -Force -ErrorAction Stop
-                Write-EmLog "Clave eliminada: $rk" Ok
+                Write-EmiLog "Clave eliminada: $rk" Ok
             }
             catch { Write-EmiLog "No se pudo eliminar $rk : $($_.Exception.Message)" Warn }
         }
@@ -456,6 +455,37 @@ function _Invoke-EmiVortexUninstaller {
         Write-EmiLog "Desinstalador devolvio codigo $code." Warn
     } catch { Write-EmiLog "Desinstalador de Vortex: $($_.Exception.Message)" Warn }
     return $false
+}
+
+function _Resolve-EmiVortexTarget {
+    <#  Ruta absoluta de un relPath de vortex.deployment.json, o $null si se
+        sale de la carpeta del juego. Join-Path no normaliza: con
+        '..\..\..\ProgramData\x' se borraria (como administrador) fuera del juego. #>
+    param([string] $GameDir, [string] $RelPath)
+    if (-not $GameDir -or -not $RelPath) { return $null }
+    if ([IO.Path]::IsPathRooted($RelPath) -or $RelPath -match '^[\\/]|:' ) {
+        Write-EmiLog "Manifiesto de Vortex: ruta absoluta rechazada ($RelPath)." Warn; return $null
+    }
+    if (($RelPath -split '[\\/]') -contains '..') {
+        Write-EmiLog "Manifiesto de Vortex: ruta con '..' rechazada ($RelPath)." Warn; return $null
+    }
+    try {
+        $base = [IO.Path]::GetFullPath($GameDir).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+        $full = [IO.Path]::GetFullPath([IO.Path]::Combine($base, $RelPath))
+    } catch { return $null }
+    if (-not $full.StartsWith($base + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        Write-EmiLog "Manifiesto de Vortex: $RelPath queda fuera de $base; no se borra." Warn; return $null
+    }
+    # Ninguna carpeta intermedia puede ser una union o enlace (llevaria fuera)
+    $cur = Split-Path $full -Parent
+    while ($cur -and $cur.Length -gt $base.Length) {
+        $it = Get-Item -LiteralPath $cur -Force -ErrorAction SilentlyContinue
+        if ($it -and ($it.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            Write-EmiLog "Manifiesto de Vortex: $RelPath pasa por un enlace ($cur); no se borra." Warn; return $null
+        }
+        $cur = Split-Path $cur -Parent
+    }
+    return $full
 }
 
 function _Get-EmiVortexManifestPaths {
@@ -554,7 +584,7 @@ function _Purge-EmiVortexDeployedFiles {
 
             foreach ($f in $manifest.files) {
                 if ($f.source -and $f.source -like "*$ModName*") {
-                    $targetPath = if ($f.relPath) { Join-Path $gameDir $f.relPath } else { $null }
+                    $targetPath = if ($f.relPath) { _Resolve-EmiVortexTarget -GameDir $gameDir -RelPath ([string]$f.relPath) } else { $null }
                     if ($targetPath -and (Test-Path -LiteralPath $targetPath)) {
                         if (_Test-EmiVortexHardlink -FilePath $targetPath) {
                             try {
@@ -621,10 +651,9 @@ function Remove-EmiVortexSkyrimFull {
                             $removed = 0
                             foreach ($f in $manifest.files) {
                                 if ($f.relPath) {
-                                    $targetPath = $f.relPath
                                     $gameDir = Split-Path $mp -Parent
-                                    $fullTarget = Join-Path $gameDir $targetPath
-                                    if (Test-Path -LiteralPath $fullTarget) {
+                                    $fullTarget = _Resolve-EmiVortexTarget -GameDir $gameDir -RelPath ([string]$f.relPath)
+                                    if ($fullTarget -and (Test-Path -LiteralPath $fullTarget)) {
                                         if (_Test-EmiVortexHardlink -FilePath $fullTarget) {
                                             try {
                                                 Remove-Item -LiteralPath $fullTarget -Force -ErrorAction Stop
@@ -673,7 +702,7 @@ function Remove-EmiVortexSkyrimFull {
                 Add-EmiJournalEntry @{ Kind='Registry'; Path=$rk; Name='(clave completa)'; Existed=$true; OldValue=$null; OldType='String'; NewValue=$null; Module='Vortex' }
                 try {
                     Remove-Item -LiteralPath $rk -Recurse -Force -ErrorAction Stop
-                    Write-Log "Clave eliminada: $rk" Ok
+                    Write-EmiLog "Clave eliminada: $rk" Ok
                 } catch { Write-EmiLog "No se pudo eliminar $rk : $($_.Exception.Message)" Warn }
             }
         }
@@ -820,6 +849,9 @@ function Remove-EmiVortexSkyrimFull {
     # Paso 6: Limpiar documentos de usuario y AppData relacionados con Skyrim
     Write-EmiLog '=== Paso 6/6: Limpiando archivos de usuario ===' Step
 
+    # $env:DOCUMENTS no existe en Windows: Join-Path $null fallaba y el paso
+    # entero no borraba nada. La carpeta real (puede estar en OneDrive):
+    $docs = [Environment]::GetFolderPath('MyDocuments')
     $userPaths = @(
         (Join-Path $env:LOCALAPPDATA 'Skyrim'),
         (Join-Path $env:LOCALAPPDATA 'Skyrim Special Edition'),
@@ -827,9 +859,9 @@ function Remove-EmiVortexSkyrimFull {
         (Join-Path $env:APPDATA 'Skyrim'),
         (Join-Path $env:APPDATA 'Skyrim Special Edition'),
         (Join-Path $env:APPDATA 'Skyrim Special Edition VR'),
-        (Join-Path $env:DOCUMENTS 'My Games\Skyrim'),
-        (Join-Path $env:DOCUMENTS 'My Games\Skyrim Special Edition'),
-        (Join-Path $env:DOCUMENTS 'My Games\Skyrim Special Edition VR')
+        (Join-Path $docs 'My Games\Skyrim'),
+        (Join-Path $docs 'My Games\Skyrim Special Edition'),
+        (Join-Path $docs 'My Games\Skyrim Special Edition VR')
     )
 
     foreach ($path in $userPaths) {
