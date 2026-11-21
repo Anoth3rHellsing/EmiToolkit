@@ -296,6 +296,29 @@ if (-not $isAdmin) { Write-EmiLog 'Sin permisos de administrador: muchas accione
 # ------------------------------ XAML ----------------------------------
 $xamlPath = Join-Path $Root 'UI\MainWindow.xaml'
 $xamlText = Get-Content -LiteralPath $xamlPath -Raw -Encoding UTF8
+
+function ConvertTo-EmiHighContrastXaml {
+    <#  Con el contraste alto de Windows activo, la paleta pasa a los colores del
+        sistema antes de cargar el XAML (los recursos son StaticResource: no se
+        pueden cambiar despues). Texto, fondo, botones y anillo de foco. #>
+    param([string] $Xaml, [hashtable] $C)
+    $map = [ordered]@{
+        '#FF07405E' = $C.Text;  '#FF0B5C8A' = $C.Text;  '#FF2C5F7E' = $C.Text
+        '#FF1C74AE' = $C.Hi;    '#FF145F94' = $C.Hi;    '#FF1A6CA6' = $C.Hi
+        '#FF3B7A1C' = $C.Hi;    '#FF2E6B12' = $C.Hi;    '#FF377519' = $C.Hi
+        '#FF9A5800' = $C.Hi;    '#FF874D00' = $C.Hi;    '#FF985700' = $C.Hi
+        '#FFB83E26' = $C.Hi;    '#FFA3341D' = $C.Hi;    '#FFB5402A' = $C.Hi
+    }
+    foreach ($k in $map.Keys) { $Xaml = $Xaml.Replace($k, $map[$k]) }
+    $Xaml = $Xaml.Replace('<Setter Property="Foreground" Value="White"/>', '<Setter Property="Foreground" Value="' + $C.HiText + '"/>')
+    return $Xaml
+}
+$script:HighContrast = $false
+try { $script:HighContrast = [bool][System.Windows.SystemParameters]::HighContrast } catch { }
+if ($script:HighContrast) {
+    $sc = [System.Windows.SystemColors]
+    $xamlText = ConvertTo-EmiHighContrastXaml $xamlText @{ Text = $sc::WindowTextColor.ToString(); Hi = $sc::HighlightColor.ToString(); HiText = $sc::HighlightTextColor.ToString() }
+}
 $win = [Windows.Markup.XamlReader]::Parse($xamlText)
 [void]$script:StartMarks.Add('XAML ' + $script:StartClock.ElapsedMilliseconds + ' ms')
 
@@ -592,6 +615,11 @@ function Show-EmiPage {
 
 foreach ($nav in @('NavHome','NavAnyDesk','NavDisk','NavTweaks','NavPrivacy','NavPrivRecs','NavDebloat','NavApps','NavEset','NavStartup','NavProcess','NavVortex','NavSystem','NavLog','NavStore')) {
     $ui[$nav].Add_Checked({ Show-EmiPage $this.Tag }.GetNewClosure())
+    # El contenido es icono + texto: Narrador lee el texto como nombre del boton
+    try {
+        $label = @([System.Windows.LogicalTreeHelper]::GetChildren($ui[$nav].Content) | Where-Object { $_ -is [System.Windows.Controls.TextBlock] } | Select-Object -First 1)
+        if ($label) { [System.Windows.Automation.AutomationProperties]::SetName($ui[$nav], $label[0].Text) }
+    } catch { }
 }
 
 $advNav = @('NavDisk','NavTweaks','NavPrivacy','NavPrivRecs','NavDebloat','NavApps','NavEset','NavStartup','NavProcess','NavVortex','NavSystem','NavLog','NavStore')
@@ -1838,6 +1866,13 @@ $win.Add_SourceInitialized({
 
 $win.Add_Loaded({
     $script:UiStarted = $true
+    if ($script:HighContrast) {
+        # Contraste alto de Windows: fondo del sistema, sin capas translucidas
+        $ui.SwContrast.IsChecked = $true
+        $ui.BgGloss.Visibility = 'Collapsed'; $ui.BgBubbles.Visibility = 'Collapsed'
+        $ui.BgSky.Fill = [System.Windows.SystemColors]::WindowBrush
+        $win.Background = [System.Windows.SystemColors]::WindowBrush
+    }
     # Estado del equipo y AnyDesk (su firma puede tardar sin red): en segundo plano
     Update-EmiHome -WithAnyDesk
     $ui.TbHeaderHint.Text = $env:COMPUTERNAME + ' - mantenimiento de Windows 11'

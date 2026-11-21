@@ -51,30 +51,30 @@
 
     <LinearGradientBrush x:Key="GlossBlue" StartPoint="0,0" EndPoint="0,1">
       <GradientStop Color="#FF8FD9F7" Offset="0"/>
-      <GradientStop Color="#FF39A5DC" Offset="0.49"/>
-      <GradientStop Color="#FF1B7FC0" Offset="0.51"/>
-      <GradientStop Color="#FF39B0E4" Offset="1"/>
+      <GradientStop Color="#FF1C74AE" Offset="0.49"/>
+      <GradientStop Color="#FF145F94" Offset="0.51"/>
+      <GradientStop Color="#FF1A6CA6" Offset="1"/>
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="GlossGreen" StartPoint="0,0" EndPoint="0,1">
       <GradientStop Color="#FFCBF08F" Offset="0"/>
-      <GradientStop Color="#FF74C23C" Offset="0.49"/>
-      <GradientStop Color="#FF4E9C22" Offset="0.51"/>
-      <GradientStop Color="#FF7FCF43" Offset="1"/>
+      <GradientStop Color="#FF3B7A1C" Offset="0.49"/>
+      <GradientStop Color="#FF2E6B12" Offset="0.51"/>
+      <GradientStop Color="#FF377519" Offset="1"/>
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="GlossAmber" StartPoint="0,0" EndPoint="0,1">
       <GradientStop Color="#FFFFE6A8" Offset="0"/>
-      <GradientStop Color="#FFF0A93A" Offset="0.49"/>
-      <GradientStop Color="#FFD5871B" Offset="0.51"/>
-      <GradientStop Color="#FFF7B950" Offset="1"/>
+      <GradientStop Color="#FF9A5800" Offset="0.49"/>
+      <GradientStop Color="#FF874D00" Offset="0.51"/>
+      <GradientStop Color="#FF985700" Offset="1"/>
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="GlossRed" StartPoint="0,0" EndPoint="0,1">
       <GradientStop Color="#FFFFB6A6" Offset="0"/>
-      <GradientStop Color="#FFDD5C3E" Offset="0.49"/>
-      <GradientStop Color="#FFB63B22" Offset="0.51"/>
-      <GradientStop Color="#FFE0704F" Offset="1"/>
+      <GradientStop Color="#FFB83E26" Offset="0.49"/>
+      <GradientStop Color="#FFA3341D" Offset="0.51"/>
+      <GradientStop Color="#FFB5402A" Offset="1"/>
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="Shine" StartPoint="0,0" EndPoint="0,1">
@@ -120,7 +120,9 @@
     <DropShadowEffect x:Key="SoftShadow" BlurRadius="16" ShadowDepth="2"
                       Direction="270" Opacity="0.28" Color="#FF0A3A56"/>
 
-    <!-- ========================= BOTON BRILLANTE ====================== -->
+    <!-- ========================= BOTON BRILLANTE ======================
+         Texto blanco >= 4,5:1 en la mitad inferior del degradado (contrast.py).
+         Foco de teclado: anillo doble, blanco dentro y Deep fuera (>= 3:1). -->
     <Style x:Key="Gloss" TargetType="Button">
       <Setter Property="Foreground" Value="White"/>
       <Setter Property="FontSize" Value="14"/>
@@ -140,7 +142,7 @@
                 <Grid>
                   <Border CornerRadius="8,8,14,14" Margin="1,1,1,0" VerticalAlignment="Top"
                           Height="17" Background="{StaticResource Shine}"/>
-                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                  <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Margin="{TemplateBinding Padding}"/>
                 </Grid>
               </Border>
@@ -151,8 +153,10 @@
                 <Setter TargetName="bd" Property="BorderBrush" Value="#B3FFFFFF"/>
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="White"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
+                <Setter TargetName="glow" Property="BorderBrush" Value="{StaticResource Deep}"/>
+                <Setter TargetName="glow" Property="BorderThickness" Value="2"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="bd" Property="RenderTransform">
@@ -189,7 +193,7 @@
                 <Grid>
                   <Border CornerRadius="8,8,14,14" Margin="1,1,1,0" VerticalAlignment="Top"
                           Height="17" Background="{StaticResource Shine}"/>
-                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                  <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Margin="{TemplateBinding Padding}"/>
                 </Grid>
               </Border>
@@ -200,8 +204,10 @@
                 <Setter TargetName="bd" Property="BorderBrush" Value="#B3FFFFFF"/>
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="White"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
+                <Setter TargetName="glow" Property="BorderBrush" Value="{StaticResource Deep}"/>
+                <Setter TargetName="glow" Property="BorderThickness" Value="2"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="bd" Property="RenderTransform">
@@ -237,7 +243,7 @@
                 <Grid>
                   <Border CornerRadius="8,8,14,14" Margin="1,1,1,0" VerticalAlignment="Top"
                           Height="17" Background="{StaticResource Shine}"/>
-                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                  <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Margin="{TemplateBinding Padding}"/>
                 </Grid>
               </Border>
@@ -248,8 +254,10 @@
                 <Setter TargetName="bd" Property="BorderBrush" Value="#B3FFFFFF"/>
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="White"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
+                <Setter TargetName="glow" Property="BorderBrush" Value="{StaticResource Deep}"/>
+                <Setter TargetName="glow" Property="BorderThickness" Value="2"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="bd" Property="RenderTransform">
@@ -285,7 +293,7 @@
                 <Grid>
                   <Border CornerRadius="8,8,14,14" Margin="1,1,1,0" VerticalAlignment="Top"
                           Height="17" Background="{StaticResource Shine}"/>
-                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                  <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Margin="{TemplateBinding Padding}"/>
                 </Grid>
               </Border>
@@ -296,8 +304,10 @@
                 <Setter TargetName="bd" Property="BorderBrush" Value="#B3FFFFFF"/>
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="White"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
+                <Setter TargetName="glow" Property="BorderBrush" Value="{StaticResource Deep}"/>
+                <Setter TargetName="glow" Property="BorderThickness" Value="2"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="bd" Property="RenderTransform">
@@ -333,7 +343,7 @@
                 <Grid>
                   <Border CornerRadius="8,8,14,14" Margin="1,1,1,0" VerticalAlignment="Top"
                           Height="17" Background="{StaticResource Shine}"/>
-                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                  <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Margin="{TemplateBinding Padding}"/>
                 </Grid>
               </Border>
@@ -344,8 +354,10 @@
                 <Setter TargetName="bd" Property="BorderBrush" Value="#B3FFFFFF"/>
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="White"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
+                <Setter TargetName="glow" Property="BorderBrush" Value="{StaticResource Deep}"/>
+                <Setter TargetName="glow" Property="BorderThickness" Value="2"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="bd" Property="RenderTransform">
@@ -374,14 +386,14 @@
         <Setter.Value>
           <ControlTemplate TargetType="Button">
             <Border x:Name="bd" CornerRadius="8" Background="#66FFFFFF" BorderBrush="#80FFFFFF" BorderThickness="1">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+              <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="bd" Property="Background" Value="#AAFFFFFF"/>
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Deep}"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
               </Trigger>
               <Trigger Property="IsEnabled" Value="False">
@@ -406,7 +418,7 @@
         <Setter.Value>
           <ControlTemplate TargetType="Button">
             <Border x:Name="bd" CornerRadius="7" Background="#00FFFFFF">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
@@ -415,7 +427,7 @@
               <Trigger Property="IsKeyboardFocused" Value="True">
                 <Setter TargetName="bd" Property="Background" Value="#AAFFFFFF"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="1"/>
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Deep}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -459,7 +471,7 @@
                 <Setter Property="FontWeight" Value="SemiBold"/>
               </Trigger>
             <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Deep}"/>
                 <Setter TargetName="bar" Property="Opacity" Value="0.6"/>
               </Trigger>
             </ControlTemplate.Triggers>
@@ -517,7 +529,7 @@
                       Stroke="White" StrokeThickness="2.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                       Data="M 0,5 L 4,9 L 12,0"/>
               </Grid>
-              <ContentPresenter Margin="9,0,0,0" VerticalAlignment="Center"/>
+              <ContentPresenter RecognizesAccessKey="True" Margin="9,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
             <ControlTemplate.Triggers>
               <Trigger Property="IsChecked" Value="True">
@@ -609,6 +621,8 @@
       <Setter Property="FontSize" Value="12.5"/>
       <Setter Property="Height" Value="34"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <!-- Narrador lee el nombre de la fila, no "EmiItem" -->
+      <Setter Property="AutomationProperties.Name" Value="{Binding Name}"/>
       <!-- Texto completo de la fila aunque la columna se quede corta -->
       <Setter Property="ToolTip">
         <Setter.Value>
@@ -663,7 +677,7 @@
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Deep}"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
               </Trigger>
             </ControlTemplate.Triggers>
@@ -882,7 +896,8 @@
                 <DockPanel>
                   <TextBlock Text="Modo avanzado" VerticalAlignment="Center" FontSize="12.5"
                              Foreground="{StaticResource Deep}" FontWeight="SemiBold"/>
-                  <ToggleButton x:Name="SwAdvanced" Style="{StaticResource Switch}" HorizontalAlignment="Right"/>
+                  <ToggleButton x:Name="SwAdvanced" Style="{StaticResource Switch}" HorizontalAlignment="Right"
+                                AutomationProperties.Name="Modo avanzado"/>
                 </DockPanel>
                 <DockPanel Margin="0,8,0,0">
                   <TextBlock Text="Contraste alto" VerticalAlignment="Center" FontSize="12.5"
@@ -1037,7 +1052,7 @@
                   </StackPanel>
                 </StackPanel>
                 <Button Grid.Column="1" x:Name="BtnOneClick" Style="{StaticResource GlossBig}"
-                        Content="Optimizar ahora" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                        Content="_Optimizar ahora" VerticalAlignment="Center" Margin="20,0,0,0"/>
               </Grid>
             </Border>
 
@@ -1196,8 +1211,8 @@
             </StackPanel>
 
             <WrapPanel Grid.Row="1" Margin="0,14,0,0">
-              <Button x:Name="BtnDiskScan"    Style="{StaticResource Gloss}"        Content="Analizar basura"/>
-              <Button x:Name="BtnDiskClean"   Style="{StaticResource GlossGreenBtn}" Content="Limpiar seleccionado" Margin="8,0,0,0"/>
+              <Button x:Name="BtnDiskScan"    Style="{StaticResource Gloss}"        Content="_Analizar basura"/>
+              <Button x:Name="BtnDiskClean"   Style="{StaticResource GlossGreenBtn}" Content="_Limpiar seleccionado" Margin="8,0,0,0"/>
               <Button x:Name="BtnDiskDism"    Style="{StaticResource Ghost}"        Content="Limpiar componentes (DISM)" Margin="8,0,0,0"/>
               <TextBlock x:Name="TbDiskTotal" VerticalAlignment="Center" Margin="16,0,0,0"
                          FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Ink}" Text=""/>
@@ -1279,7 +1294,7 @@
                          Text="Quita lo que sobra. Lo recomendado viene marcado; el resto es opcional."/>
             </StackPanel>
             <WrapPanel Grid.Row="1" Margin="0,14,0,0">
-              <Button x:Name="BtnTweakApply" Style="{StaticResource GlossGreenBtn}" Content="Aplicar seleccionado"/>
+              <Button x:Name="BtnTweakApply" Style="{StaticResource GlossGreenBtn}" Content="_Aplicar seleccionado"/>
               <Button x:Name="BtnTweakRecommended" Style="{StaticResource Ghost}" Content="Marcar recomendados" Margin="8,0,0,0"/>
               <Button x:Name="BtnRestartExplorer" Style="{StaticResource Ghost}" Content="Reiniciar Explorador" Margin="8,0,0,0"/>
             </WrapPanel>
@@ -1314,7 +1329,7 @@
                          Text="Corta el envio de datos a Microsoft. No toca Windows Defender, Windows Update ni la activacion."/>
             </StackPanel>
             <WrapPanel Grid.Row="1" Margin="0,14,0,0">
-              <Button x:Name="BtnPrivApply" Style="{StaticResource GlossGreenBtn}" Content="Aplicar seleccionado"/>
+              <Button x:Name="BtnPrivApply" Style="{StaticResource GlossGreenBtn}" Content="_Aplicar seleccionado"/>
               <Button x:Name="BtnPrivRecommended" Style="{StaticResource Ghost}" Content="Marcar recomendados" Margin="8,0,0,0"/>
             </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvPrivacy" Style="{StaticResource Lst}" Margin="0,14,0,0">
@@ -1545,7 +1560,7 @@
                          Text="Quita bloatware preinstalado y toggles de Windows Features. La remocion de apps es parcialmente reversible via winget/Store."/>
             </StackPanel>
             <WrapPanel Grid.Row="1" Margin="0,14,0,0">
-              <Button x:Name="BtnDebloatApply" Style="{StaticResource GlossGreenBtn}" Content="Aplicar seleccionado"/>
+              <Button x:Name="BtnDebloatApply" Style="{StaticResource GlossGreenBtn}" Content="_Aplicar seleccionado"/>
               <Button x:Name="BtnDebloatRecommended" Style="{StaticResource Ghost}" Content="Marcar recomendados" Margin="8,0,0,0"/>
             </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvDebloat" Style="{StaticResource Lst}" Margin="0,14,0,0">
@@ -1821,64 +1836,43 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
             <StackPanel>
               <TextBlock Text="Another Store" FontSize="22" FontWeight="SemiBold"
-                         Foreground="#FF1F86C8" Margin="0,0,0,6"/>
-              <TextBlock TextWrapping="Wrap" Foreground="#FF2C5F7E" Margin="0,0,0,14"
+                         Foreground="{StaticResource Ink}" Margin="0,0,0,6"/>
+              <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,14"
                          Text="Explora e instala las aplicaciones de Another Suite. Visita la tienda online o desinstala apps directamente desde aquí."/>
 
               <Border Background="#CCFFFFFF" CornerRadius="8" Padding="16" Margin="0,0,0,16"
                       BorderBrush="#66FFFFFF" BorderThickness="1">
                 <StackPanel>
                   <TextBlock Text="Tienda Online" FontSize="15" FontWeight="SemiBold"
-                             Foreground="#FF1F86C8" Margin="0,0,0,6"/>
-                  <TextBlock TextWrapping="Wrap" Foreground="#FF2C5F7E" Margin="0,0,0,10"
+                             Foreground="{StaticResource Ink}" Margin="0,0,0,6"/>
+                  <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"
                              Text="Visita anotherstore.neocities.org para descargar las últimas versiones y descubrir nuevas apps."/>
-                  <Button x:Name="BtnStoreOpenWeb" Content="Abrir Another Store en el navegador"
-                          Foreground="White" FontSize="14" FontWeight="SemiBold" Height="40"
-                          Padding="14,7" Cursor="Hand" HorizontalAlignment="Left">
-                    <Button.Background>
-                      <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#FF6FC7F0" Offset="0"/>
-                        <GradientStop Color="#FF1F86C8" Offset="1"/>
-                      </LinearGradientBrush>
-                    </Button.Background>
-                  </Button>
+                  <Button x:Name="BtnStoreOpenWeb" Style="{StaticResource Gloss}" Content="Abrir Another Store en el navegador" HorizontalAlignment="Left"/>
                 </StackPanel>
               </Border>
 
               <TextBlock Text="Desinstalar Apps de Another Suite" FontSize="15" FontWeight="SemiBold"
-                         Foreground="#FF1F86C8" Margin="0,0,0,8"/>
-              <TextBlock TextWrapping="Wrap" Foreground="#FF2C5F7E" Margin="0,0,0,10"
+                         Foreground="{StaticResource Ink}" Margin="0,0,0,8"/>
+              <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"
                          Text="Selecciona las aplicaciones que deseas desinstalar. Se buscarán por nombre en el registro de Windows y se ejecutará su desinstalador si está disponible."/>
 
               <WrapPanel x:Name="StoreAppsPanel" Margin="0,0,0,14">
-                <CheckBox x:Name="ChkStoreAudio"  Content="Audio"   Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreDraw"   Content="Draw"    Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreFinance" Content="Finance" Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreHub"    Content="Hub"     Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreMedia"  Content="Media"   Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStorePhoto"  Content="Photo"   Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStorePixel"  Content="Pixel"   Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStorePresent" Content="Present" Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreReader" Content="Reader"  Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreVault"  Content="Vault"   Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreWriter" Content="Writer"  Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreAudio"  Content="Audio"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreDraw"   Content="Draw"    Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreFinance" Content="Finance" Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreHub"    Content="Hub"     Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreMedia"  Content="Media"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStorePhoto"  Content="Photo"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStorePixel"  Content="Pixel"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStorePresent" Content="Present" Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreReader" Content="Reader"  Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreVault"  Content="Vault"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreWriter" Content="Writer"  Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
               </WrapPanel>
 
               <StackPanel Orientation="Horizontal">
-                <Button x:Name="BtnStoreUninstall" Content="Desinstalar seleccionadas"
-                        Foreground="White" FontSize="14" FontWeight="SemiBold" Height="40"
-                        Padding="14,7" Cursor="Hand" Margin="0,0,10,0">
-                  <Button.Background>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                      <GradientStop Color="#FFFFA694" Offset="0"/>
-                      <GradientStop Color="#FFC63C22" Offset="1"/>
-                    </LinearGradientBrush>
-                  </Button.Background>
-                </Button>
-                <Button x:Name="BtnStoreSelectAll" Content="Seleccionar todas"
-                        Foreground="#FF0B5C8A" FontSize="13" Height="34" Padding="14,7"
-                        Cursor="Hand" Background="Transparent"
-                        BorderBrush="#59FFFFFF" BorderThickness="1"/>
+                <Button x:Name="BtnStoreUninstall" Style="{StaticResource GlossRedBtn}" Content="Desinstalar seleccionadas" Margin="0,0,10,0"/>
+                <Button x:Name="BtnStoreSelectAll" Style="{StaticResource Ghost}" Content="Marcar todas"/>
               </StackPanel>
             </StackPanel>
             </ScrollViewer>
@@ -1906,8 +1900,24 @@
                 <ItemsControl x:Name="IcLog" Margin="10">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                      <TextBlock Text="{Binding Text}" FontFamily="Consolas" FontSize="11.5"
+                      <TextBlock x:Name="ln" Text="{Binding Text}" FontFamily="Consolas" FontSize="11.5"
                                  Foreground="{StaticResource Deep}" TextWrapping="Wrap" Margin="0,1"/>
+                      <!-- Color por nivel (todos >= 4,5:1 sobre la tarjeta clara) -->
+                      <DataTemplate.Triggers>
+                        <DataTrigger Binding="{Binding Level}" Value="Error">
+                          <Setter TargetName="ln" Property="Foreground" Value="#FFA4262C"/>
+                          <Setter TargetName="ln" Property="FontWeight" Value="SemiBold"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Level}" Value="Warn">
+                          <Setter TargetName="ln" Property="Foreground" Value="#FF8A4B00"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Level}" Value="Ok">
+                          <Setter TargetName="ln" Property="Foreground" Value="#FF2E6B12"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Level}" Value="Step">
+                          <Setter TargetName="ln" Property="FontWeight" Value="Bold"/>
+                        </DataTrigger>
+                      </DataTemplate.Triggers>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
