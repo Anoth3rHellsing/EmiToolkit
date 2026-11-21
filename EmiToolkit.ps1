@@ -411,6 +411,69 @@ function Get-EmiChecked {
     return $sel
 }
 
+function Show-EmiConfirmList {
+    <#  Ventana de confirmacion con la lista de lo que se va a hacer (con barra de
+        desplazamiento si es larga). El boton por defecto es Cancelar: Intro o
+        Esc no aplican nada. Devuelve $true solo si se pulsa el boton de aplicar. #>
+    param(
+        [string] $Title,
+        [string] $Intro,
+        [string] $Body,
+        [string] $Warning,
+        [string] $YesText = 'Aplicar'
+    )
+    $w = New-Object System.Windows.Window
+    $w.Title  = $Title
+    $w.Width  = 600; $w.Height = 560; $w.MinWidth = 420; $w.MinHeight = 320
+    $w.WindowStartupLocation = 'CenterOwner'
+    $w.ShowInTaskbar = $false
+    $w.ResizeMode = 'CanResizeWithGrip'
+    try { $w.Owner = $win } catch { $w.WindowStartupLocation = 'CenterScreen' }
+
+    $dock = New-Object System.Windows.Controls.DockPanel
+    $dock.Margin = [System.Windows.Thickness]::new(16)
+
+    $tbIntro = New-Object System.Windows.Controls.TextBlock
+    $tbIntro.Text = $Intro; $tbIntro.TextWrapping = 'Wrap'; $tbIntro.FontSize = 14
+    $tbIntro.Margin = [System.Windows.Thickness]::new(0, 0, 0, 8)
+    [System.Windows.Controls.DockPanel]::SetDock($tbIntro, 'Top')
+    [void]$dock.Children.Add($tbIntro)
+
+    if ($Warning) {
+        $tbWarn = New-Object System.Windows.Controls.TextBlock
+        $tbWarn.Text = $Warning; $tbWarn.TextWrapping = 'Wrap'; $tbWarn.FontWeight = 'SemiBold'
+        $tbWarn.Foreground = [Windows.Media.BrushConverter]::new().ConvertFrom('#FFA4262C')
+        $tbWarn.Margin = [System.Windows.Thickness]::new(0, 0, 0, 8)
+        [System.Windows.Controls.DockPanel]::SetDock($tbWarn, 'Top')
+        [void]$dock.Children.Add($tbWarn)
+    }
+
+    $buttons = New-Object System.Windows.Controls.StackPanel
+    $buttons.Orientation = 'Horizontal'; $buttons.HorizontalAlignment = 'Right'
+    $buttons.Margin = [System.Windows.Thickness]::new(0, 12, 0, 0)
+    [System.Windows.Controls.DockPanel]::SetDock($buttons, 'Bottom')
+    $btnYes = New-Object System.Windows.Controls.Button
+    $btnYes.Content = $YesText; $btnYes.MinWidth = 110; $btnYes.Padding = [System.Windows.Thickness]::new(12, 4, 12, 4)
+    $btnYes.Add_Click({ [System.Windows.Window]::GetWindow($this).DialogResult = $true })
+    $btnNo = New-Object System.Windows.Controls.Button
+    $btnNo.Content = 'Cancelar'; $btnNo.MinWidth = 110; $btnNo.Padding = [System.Windows.Thickness]::new(12, 4, 12, 4)
+    $btnNo.Margin = [System.Windows.Thickness]::new(8, 0, 0, 0)
+    $btnNo.IsDefault = $true; $btnNo.IsCancel = $true
+    [void]$buttons.Children.Add($btnYes)
+    [void]$buttons.Children.Add($btnNo)
+    [void]$dock.Children.Add($buttons)
+
+    $tbBody = New-Object System.Windows.Controls.TextBox
+    $tbBody.Text = $Body; $tbBody.IsReadOnly = $true; $tbBody.TextWrapping = 'Wrap'
+    $tbBody.VerticalScrollBarVisibility = 'Auto'; $tbBody.FontFamily = 'Segoe UI'; $tbBody.FontSize = 13
+    $tbBody.Padding = [System.Windows.Thickness]::new(6)
+    [void]$dock.Children.Add($tbBody)
+
+    $w.Content = $dock
+    [System.Windows.Input.FocusManager]::SetFocusedElement($w, $btnNo)
+    return ($w.ShowDialog() -eq $true)
+}
+
 # ======================================================================
 #                            BOTON UNICO
 # ======================================================================
@@ -422,32 +485,92 @@ $ui.BtnOneClick.Add_Click({
         Zen     = [bool]$ui.ChkZenInclude.IsChecked
     }
 
-    Start-EmiWork -Label 'Mantenimiento completo...' -Parameters $p -Work {
+    # Primero se prepara la lista exacta de lo que se hara (el arranque se
+    # analiza en segundo plano) y se pide confirmacion; luego se aplica eso mismo.
+    Start-EmiWork -Label 'Preparando la lista de cambios...' -Parameters $p -Work {
+        $clean = @(Get-EmiCleanupTargets | Where-Object { $_.Safe })
+        $eset  = @()
+        if ($P.Eset) { $eset = @(Get-EmiEsetGroups | Where-Object { -not ($_.ContainsKey('Optional') -and $_.Optional) } | ForEach-Object { $_.Name }) }
+        $zen = Get-EmiZenInfo
+        return @{
+            Restore     = $P.Restore
+            CleanIds    = @($clean | ForEach-Object { $_.Id })
+            CleanNames  = @($clean | ForEach-Object { $_.Name })
+            Recycle     = [bool]($clean | Where-Object { $_.Id -eq 'Recycle' })
+            TweakIds    = @(Get-EmiTweaks | Where-Object { $_.Recommended } | ForEach-Object { $_.Id })
+            TweakNames  = @(Get-EmiTweaks | Where-Object { $_.Recommended } | ForEach-Object { $_.Name })
+            PrivIds     = @(Get-EmiPrivacyItems | Where-Object { $_.Recommended } | ForEach-Object { $_.Id })
+            PrivNames   = @(Get-EmiPrivacyItems | Where-Object { $_.Recommended } | ForEach-Object { $_.Name })
+            Startup     = @(Get-EmiStartupItems | Where-Object { $_.Recommended -and -not $_.Locked } | ForEach-Object { [pscustomobject]@{ Tag = $_.Tag; Name = $_.Name } })
+            FastOn      = [bool](Get-EmiFastStartup).Enabled
+            Eset        = $P.Eset
+            EsetGroups  = $eset
+            Zen         = $P.Zen
+            ZenInstalled = [bool]$zen.Installed
+            ZenDefault  = [bool]$zen.IsDefault
+        }
+    } -OnDone {
+        param($r)
+        $plan = @($r)[-1]
+        if ($plan) { $plan = $plan.PSObject.BaseObject }
+        if (-not ($plan -is [hashtable])) {
+            [System.Windows.MessageBox]::Show('No se pudo preparar la lista de cambios. Mira el registro.', 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
+            return
+        }
+        $nl = "`n"
+        $lst = { param($names) if (@($names).Count -eq 0) { '   (nada)' } else { (@($names) | ForEach-Object { '   - ' + $_ }) -join "`n" } }
+
+        $b  = '1. Limpieza de disco: ' + @($plan.CleanNames).Count + ' ubicaciones. NO se puede deshacer.' + $nl + (& $lst $plan.CleanNames) + $nl + $nl
+        $b += '2. Optimizaciones de Windows 11: ' + @($plan.TweakNames).Count + ' ajustes (reversibles desde Registro y deshacer).' + $nl + (& $lst $plan.TweakNames) + $nl + $nl
+        $b += '3. Telemetria y privacidad: ' + @($plan.PrivNames).Count + ' ajustes (reversibles desde Registro y deshacer).' + $nl + (& $lst $plan.PrivNames) + $nl + $nl
+        $b += '4. Programas de arranque: se quitan ' + @($plan.Startup).Count + ' (se pueden reactivar en Arranque).' + $nl + (& $lst @($plan.Startup | ForEach-Object { $_.Name })) + $nl + $nl
+        $b += '5. Inicio rapido: ' + $(if ($plan.FastOn) { 'se desactiva (reversible).' } else { 'ya esta desactivado, no se toca.' }) + $nl + $nl
+        $b += '6. Firewall de ESET (KB332): ' + $(if ($plan.Eset) { [string]@($plan.EsetGroups).Count + ' grupos de reglas (se pueden quitar en ESET).' + $nl + (& $lst $plan.EsetGroups) } else { 'omitido.' }) + $nl + $nl
+        $b += '7. Navegador predeterminado: ' + $(if (-not $plan.Zen) { 'omitido.' } elseif (-not $plan.ZenInstalled) { 'Zen no esta instalado, no se toca.' } elseif ($plan.ZenDefault) { 'Zen ya es el predeterminado.' } else { 'se pone Zen como predeterminado.' }) + $nl + $nl
+        $b += 'Punto de restauracion antes de empezar: ' + $(if ($plan.Restore) { 'si.' } else { 'NO (desmarcado).' })
+
+        $warn = 'Lo que NO se puede deshacer: la limpieza de disco borra para siempre el contenido de esas carpetas'
+        if ($plan.Recycle) { $warn += ' y VACIA LA PAPELERA (lo que haya en ella no se podra recuperar)' }
+        $warn += '. Revisa la lista antes de continuar.'
+
+        $ok = Show-EmiConfirmList -Title 'Optimizar ahora: confirmar' -YesText 'Optimizar ahora' `
+              -Intro 'Se aplicara lo siguiente en este equipo:' -Body $b -Warning $warn
+        if (-not $ok) { Write-EmiLog 'Mantenimiento cancelado por el usuario.' Info; return }
+        Start-EmiMaintenance $plan
+    }
+})
+
+function Start-EmiMaintenance {
+    param([hashtable] $Plan)
+    Start-EmiWork -Label 'Mantenimiento completo...' -Parameters $Plan -Work {
 
         $freed = 0
-        if ($P.Restore) { [void](New-EmiRestorePoint) }
+        $rp = $null
+        if ($P.Restore) { $rp = [bool](@(New-EmiRestorePoint)[-1]) }
 
         Write-EmiLog '=== 1/7  Limpieza de disco ===' Step
-        $safe = (Get-EmiCleanupTargets | Where-Object { $_.Safe }).Id
-        $freed = Invoke-EmiCleanup -Ids $safe
+        $freed = Invoke-EmiCleanup -Ids $P.CleanIds
 
         Write-EmiLog '=== 2/7  Optimizacion de Windows 11 ===' Step
-        $ids = (Get-EmiTweaks | Where-Object { $_.Recommended }).Id
-        [void](Invoke-EmiTweakSet -Ids $ids)
+        [void](Invoke-EmiTweakSet -Ids $P.TweakIds)
 
         Write-EmiLog '=== 3/7  Telemetria ===' Step
-        $pid2 = (Get-EmiPrivacyItems | Where-Object { $_.Recommended }).Id
-        [void](Invoke-EmiPrivacySet -Ids $pid2)
+        [void](Invoke-EmiPrivacySet -Ids $P.PrivIds)
 
         Write-EmiLog '=== 4/7  Programas de arranque ===' Step
-        [void](Invoke-EmiStartupCleanup)
+        # Solo las entradas que se ensenaron en la confirmacion
+        $tags  = @($P.Startup | ForEach-Object { $_.Tag })
+        $items = @(Get-EmiStartupItems | Where-Object { $tags -contains $_.Tag -and -not $_.Locked })
+        if ($items.Count -gt 0) { [void](Invoke-EmiStartupCleanup -Items $items) }
+        else { Write-EmiLog 'Nada que quitar del arranque.' Ok }
 
         Write-EmiLog '=== 5/7  Inicio rapido ===' Step
         [void](Disable-EmiFastStartup)
 
         if ($P.Eset) {
             Write-EmiLog '=== 6/7  Firewall de ESET (KB332) ===' Step
-            [void](Invoke-EmiEsetFirewall -ResolveHostnames)
+            if (@($P.EsetGroups).Count -gt 0) { [void](Invoke-EmiEsetFirewall -Groups $P.EsetGroups -ResolveHostnames) }
+            else { [void](Invoke-EmiEsetFirewall -ResolveHostnames) }
         } else { Write-EmiLog '=== 6/7  Firewall de ESET omitido ===' Warn }
 
         if ($P.Zen) {
@@ -457,16 +580,17 @@ $ui.BtnOneClick.Add_Click({
 
         Write-EmiLog "MANTENIMIENTO TERMINADO. Espacio liberado: $(Format-EmiSize $freed)" Ok
         Set-EmiStatus 'Mantenimiento terminado' 100
-        return $freed
+        return @{ Freed = $freed; Restore = $rp }
 
     } -OnDone {
         param($r)
         Update-EmiHome
-        $freed = 0; if ($r) { $freed = @($r)[-1] }
+        $res = @($r)[-1]
+        $freed = 0; if ($res -and $res.Freed) { $freed = $res.Freed }
         $doneMsg = 'Mantenimiento terminado.' + "`n`n" + 'Espacio liberado: ' + (Format-EmiSize $freed) + "`n`n" + 'Conviene reiniciar el equipo para que todo se aplique.'
         [System.Windows.MessageBox]::Show($doneMsg, 'Another''s Toolbox', 'OK', 'Information') | Out-Null
     }
-})
+}
 
 # ======================================================================
 #                               DISCO
