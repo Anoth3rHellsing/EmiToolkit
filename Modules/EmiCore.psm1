@@ -81,7 +81,7 @@ function Initialize-EmiCore {
     if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
 
     $script:LogFile = Join-Path $dataDir ("EmiToolkit_{0}.log" -f (Get-Date -Format 'yyyyMMdd'))
-    $script:Journal = Join-Path $dataDir 'undo-journal.json'
+    $script:Journal = Join-Path $dataDir 'undo-journal.jsonl'
 
     if (-not $global:EmiSync) {
         $global:EmiSync = [hashtable]::Synchronized(@{
@@ -151,28 +151,159 @@ function Get-EmiFolderSize {
     } catch { return 0 }
 }
 
+function Split-EmiCommandLine {
+    <#  Separa una linea de comandos de Windows en ejecutable y argumentos:
+          '"C:\Program Files\X\Uninstall X.exe" /currentuser' -> ruta | /currentuser
+          'MsiExec.exe /X{GUID}'                              -> MsiExec.exe | /X{GUID}
+          'C:\Program Files\X\unins000.exe'                   -> ruta (con espacios) | '' #>
+    param([Parameter(Mandatory)][string] $CommandLine)
+    $s = $CommandLine.Trim()
+    if ($s.StartsWith('"')) {
+        $end = $s.IndexOf('"', 1)
+        if ($end -gt 0) {
+            return [pscustomobject]@{ FilePath = $s.Substring(1, $end - 1); Arguments = $s.Substring($end + 1).Trim() }
+        }
+        return [pscustomobject]@{ FilePath = $s.Trim('"'); Arguments = '' }
+    }
+    # Sin comillas la ruta puede llevar espacios: termina en el primer .exe
+    $m = [regex]::Match($s, '^(.+?\.exe)(?:\s+(.*))?$', 'IgnoreCase')
+    if ($m.Success) {
+        return [pscustomobject]@{ FilePath = $m.Groups[1].Value; Arguments = $m.Groups[2].Value.Trim() }
+    }
+    $sp = $s.IndexOf(' ')
+    if ($sp -gt 0) {
+        return [pscustomobject]@{ FilePath = $s.Substring(0, $sp); Arguments = $s.Substring($sp + 1).Trim() }
+    }
+    return [pscustomobject]@{ FilePath = $s; Arguments = '' }
+}
+
+function Get-EmiUninstallCommand {
+    <#  Ejecutable y argumentos para desinstalar en silencio una entrada de
+        ...\Uninstall. Usa QuietUninstallString si existe; si no, separa
+        UninstallString y anade el modo silencioso de cada instalador. #>
+    param([string] $QuietUninstallString, [string] $UninstallString)
+    if ($QuietUninstallString) { return Split-EmiCommandLine $QuietUninstallString }
+    if (-not $UninstallString) { throw 'La entrada no tiene UninstallString.' }
+
+    $c    = Split-EmiCommandLine $UninstallString
+    $leaf = ($c.FilePath -split '[\\/]')[-1]
+    if ($leaf -match '^msiexec(\.exe)?$') {
+        # MSI: /I abre el asistente de mantenimiento; se pide /X y sin interfaz
+        $a = $c.Arguments -replace '(?i)(^|\s)/I(?=\s*\{)', '$1/X'
+        if ($a -notmatch '(?i)(^|\s)/q') { $a = ($a + ' /qn /norestart').Trim() }
+        $c.Arguments = $a
+    } elseif ($leaf -match '^unins\d+\.exe$') {
+        # Inno Setup
+        if ($c.Arguments -notmatch '(?i)/(very)?silent') { $c.Arguments = ($c.Arguments + ' /VERYSILENT /SUPPRESSMSGBOXES /NORESTART').Trim() }
+    } else {
+        # NSIS (electron-builder escribe '"...\Uninstall X.exe" /currentuser')
+        if ($c.Arguments -notmatch '(?i)(^|\s)/S(\s|$)') { $c.Arguments = ($c.Arguments + ' /S').Trim() }
+    }
+    return $c
+}
+
 # --------------------- Diario reversible (undo) ----------------------
+# El diario es un archivo JSON Lines (Data\undo-journal.jsonl): una entrada
+# por linea, y cada cambio solo anade una linea al final. Antes era un array
+# JSON que se releia y reescribia entero; en PowerShell 5.1 ConvertFrom-Json
+# devuelve ese array como un unico objeto, @() lo envolvia y += lo metia
+# dentro, asi que el diario se anidaba en cada escritura y, pasada la
+# profundidad de ConvertTo-Json, las entradas viejas se perdian. El archivo
+# antiguo (Data\undo-journal.json) se sigue leyendo, aplanado, y se retira
+# cuando Undo-EmiChanges termina.
+
+$script:JournalUtf8 = New-Object System.Text.UTF8Encoding($false)
+$script:JournalLost = 0
+
+function Get-EmiLegacyJournalPath {
+    if (-not $script:Journal) { return $null }
+    return [System.IO.Path]::ChangeExtension($script:Journal, '.json')
+}
+
+function ConvertFrom-EmiLegacyJournal {
+    <#  Aplana el diario antiguo, que en PowerShell 5.1 quedaba asi:
+            [ { "value": [ { "value": [...], "Count": 2 }, e3 ], "Count": 2 }, e4 ]
+        Devuelve las entradas de la mas antigua a la mas reciente. Las que
+        ConvertTo-Json trunco a texto (" ") ya no existen: se suman a $Lost. #>
+    param($Node, [ref] $Lost, [int] $Level = 0)
+    if ($null -eq $Node -or $Level -gt 200) { return }
+    if ($Node -is [string]) { $Lost.Value++; return }
+    if ($Node -is [System.Collections.IEnumerable] -and $Node -isnot [System.Collections.IDictionary]) {
+        foreach ($x in $Node) { ConvertFrom-EmiLegacyJournal $x $Lost ($Level + 1) }
+        return
+    }
+    $names = @($Node.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($names -contains 'Kind') { return $Node }
+    if ($names -contains 'value') { ConvertFrom-EmiLegacyJournal $Node.value $Lost ($Level + 1); return }
+    $Lost.Value++
+}
 
 function Add-EmiJournalEntry {
     param([hashtable] $Entry)
     if (-not $script:Journal) { return }
     $Entry['Timestamp'] = (Get-Date).ToString('s')
-    $all = @()
-    if (Test-Path -LiteralPath $script:Journal) {
-        try { $all = @(Get-Content -LiteralPath $script:Journal -Raw | ConvertFrom-Json) } catch { $all = @() }
-    }
-    $all += [pscustomobject]$Entry
-    $all | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $script:Journal -Encoding UTF8
+    $line = ConvertTo-Json -InputObject ([pscustomobject]$Entry) -Depth 8 -Compress
+    [System.IO.File]::AppendAllText($script:Journal, $line + "`r`n", $script:JournalUtf8)
 }
 
 function Get-EmiJournal {
-    if (-not $script:Journal -or -not (Test-Path -LiteralPath $script:Journal)) { return @() }
-    try { return @(Get-Content -LiteralPath $script:Journal -Raw | ConvertFrom-Json) } catch { return @() }
+    <#  Entradas del diario en orden de aplicacion (la mas antigua primero).
+        Deja en $script:JournalLost cuantas entradas antiguas no se pudieron leer. #>
+    $script:JournalLost = 0
+    if (-not $script:Journal) { return @() }
+    $lost    = 0
+    $entries = New-Object System.Collections.ArrayList
+
+    $legacy = Get-EmiLegacyJournalPath
+    if ($legacy -and (Test-Path -LiteralPath $legacy)) {
+        try {
+            $text = [System.IO.File]::ReadAllText($legacy)
+            if ($text.Trim()) {
+                # Sin canalizacion: asi PowerShell 5.1 y 7 entregan lo mismo
+                $parsed = ConvertFrom-Json -InputObject $text
+                foreach ($e in @(ConvertFrom-EmiLegacyJournal $parsed ([ref]$lost))) { [void]$entries.Add($e) }
+            }
+        } catch { $lost++ }
+    }
+
+    if (Test-Path -LiteralPath $script:Journal) {
+        foreach ($line in [System.IO.File]::ReadAllLines($script:Journal, $script:JournalUtf8)) {
+            if (-not $line.Trim()) { continue }
+            # Una linea a medias (corte de luz mientras se escribia) no tumba el resto
+            try { [void]$entries.Add((ConvertFrom-Json -InputObject $line)) } catch { $lost++ }
+        }
+    }
+
+    $script:JournalLost = $lost
+    return $entries.ToArray()
+}
+
+function Get-EmiJournalLostCount { return [int]$script:JournalLost }
+
+function Set-EmiJournalContent {
+    <#  Reescribe el diario con las entradas dadas (las que quedan por revertir)
+        y retira el diario antiguo, cuyas entradas ya van incluidas. #>
+    param([object[]] $Entries = @())
+    if (-not $script:Journal) { return }
+    if (-not $Entries -or $Entries.Count -eq 0) { Clear-EmiJournal; return }
+
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($e in $Entries) { [void]$sb.Append((ConvertTo-Json -InputObject $e -Depth 8 -Compress) + "`r`n") }
+    $tmp = $script:Journal + '.tmp'
+    [System.IO.File]::WriteAllText($tmp, $sb.ToString(), $script:JournalUtf8)
+    Move-Item -LiteralPath $tmp -Destination $script:Journal -Force -ErrorAction Stop
+
+    $legacy = Get-EmiLegacyJournalPath
+    if ($legacy -and (Test-Path -LiteralPath $legacy)) {
+        Remove-Item -LiteralPath $legacy -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Clear-EmiJournal {
-    if ($script:Journal -and (Test-Path -LiteralPath $script:Journal)) {
-        Remove-Item -LiteralPath $script:Journal -Force -ErrorAction SilentlyContinue
+    foreach ($f in @($script:Journal, (Get-EmiLegacyJournalPath))) {
+        if ($f -and (Test-Path -LiteralPath $f)) {
+            Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -277,61 +408,180 @@ function Disable-EmiScheduledTask {
     catch { return $false }
 }
 
-function Undo-EmiChanges {
-    <#  Revierte todo lo registrado en el diario. #>
-    $entries = @(Get-EmiJournal)
-    if ($entries.Count -eq 0) { Write-EmiLog 'No hay cambios que revertir.' Warn; return 0 }
+function ConvertTo-EmiUndoCommand {
+    <#  Las entradas 'Command' guardan datos (Action + parametros), nunca codigo.
+        Las entradas antiguas traian el codigo en 'Undo'; aqui se traducen a una
+        accion conocida y ese texto no se ejecuta jamas. #>
+    param($Entry)
+    if ($Entry.Action) { return $Entry }
+    $undo = [string]$Entry.Undo
+    if ($Entry.PackageName) {
+        return [pscustomobject]@{ Kind = 'Command'; Action = 'AppxReinstall'; PackageName = [string]$Entry.PackageName }
+    }
+    if ($undo -match 'powercfg\s+/hibernate\s+on') {
+        return [pscustomobject]@{ Kind = 'Command'; Action = 'Hibernate' }
+    }
+    if ($undo -match 'SetEnvironmentVariable') {
+        $vars = @([regex]::Matches($undo, "SetEnvironmentVariable\('([A-Z0-9_]+)'") |
+                  ForEach-Object { [pscustomobject]@{ Name = $_.Groups[1].Value; OldValue = $null } })
+        return [pscustomobject]@{ Kind = 'Command'; Action = 'EnvVars'; Scope = 'User'; Variables = $vars }
+    }
+    $hint = if ($undo -match "Write-EmiLog '([^']+)'") { $Matches[1] } else { 'sin instrucciones' }
+    return [pscustomobject]@{ Kind = 'Command'; Action = 'Manual'; Hint = $hint }
+}
 
-    $n = 0
-    # Se recorre al reves: lo ultimo aplicado se revierte primero
-    for ($i = $entries.Count - 1; $i -ge 0; $i--) {
-        $e = $entries[$i]
-        try {
-            switch ($e.Kind) {
-                'Registry' {
-                    if ($e.Existed) {
-                        $t = if ($e.OldType) { $e.OldType } else { 'String' }
-                        if ($t -eq 'Unknown') { $t = 'String' }
-                        $val = $e.OldValue
-                        # El round-trip JSON convierte Binary/MultiString en array de enteros o strings
-                        if ($t -eq 'Binary'   -and $val -isnot [byte[]]) { $val = [byte[]]@($val | ForEach-Object { [byte]$_ }) }
-                        if ($t -eq 'MultiString' -and $val -isnot [array]) { $val = [string[]]@($val) }
-                        if ($t -eq 'DWord' -and $val -is [long]) { $val = [int]($val -band 0xFFFFFFFF) }
-                        New-ItemProperty -LiteralPath $e.Path -Name $e.Name -Value $val -PropertyType $t -Force -ErrorAction Stop | Out-Null
+function Invoke-EmiUndoEntry {
+    <#  Revierte una entrada. Devuelve:
+          'Reverted'     se deshizo;
+          'Failed'       no se pudo ahora (se queda en el diario para reintentar);
+          'Irreversible' la entrada no guarda con que deshacerla (se avisa y se retira). #>
+    param([Parameter(Mandatory)] $e)
+
+    switch ([string]$e.Kind) {
+        'Registry' {
+            if ($e.Name -eq '(clave completa)') {
+                Write-EmiLog "No se puede restaurar la clave borrada $($e.Path): el diario no guarda su contenido." Warn
+                return 'Irreversible'
+            }
+            if ($e.Existed) {
+                $t = if ($e.OldType) { [string]$e.OldType } else { 'String' }
+                if ($t -eq 'Unknown') { $t = 'String' }
+                $val = $e.OldValue
+                # El round-trip JSON convierte Binary/MultiString en array de enteros o strings
+                if ($t -eq 'Binary'   -and $val -isnot [byte[]]) { $val = [byte[]]@($val | ForEach-Object { [byte]$_ }) }
+                if ($t -eq 'MultiString' -and $val -isnot [array]) { $val = [string[]]@($val) }
+                if ($t -eq 'DWord' -and $val -is [long]) { $val = [int]($val -band 0xFFFFFFFF) }
+                if (-not (Test-Path -LiteralPath $e.Path)) { New-Item -Path $e.Path -Force -ErrorAction Stop | Out-Null }
+                New-ItemProperty -LiteralPath $e.Path -Name $e.Name -Value $val -PropertyType $t -Force -ErrorAction Stop | Out-Null
+            } elseif (Test-Path -LiteralPath $e.Path) {
+                Remove-ItemProperty -LiteralPath $e.Path -Name $e.Name -Force -ErrorAction SilentlyContinue
+            }
+            return 'Reverted'
+        }
+        'Service' {
+            $map = @{ 'Auto' = 'Automatic'; 'Automatic' = 'Automatic'; 'Manual' = 'Manual'; 'Disabled' = 'Disabled' }
+            $st  = $map[[string]$e.OldStartMode]
+            if (-not $st -and $e.OldStatus -ne 'Running') {
+                Write-EmiLog "Servicio '$($e.Name)': no se sabe como arrancaba antes ($($e.OldStartMode))." Warn
+                return 'Irreversible'
+            }
+            if ($st) { Set-Service -Name $e.Name -StartupType $st -ErrorAction Stop }
+            if ($e.OldStatus -eq 'Running') { Start-Service -Name $e.Name -ErrorAction Stop }
+            return 'Reverted'
+        }
+        'Task' {
+            $t = Get-ScheduledTask -TaskPath $e.TaskPath -TaskName $e.TaskName -ErrorAction SilentlyContinue
+            if (-not $t) {
+                Write-EmiLog "La tarea $($e.TaskPath)$($e.TaskName) ya no existe en este equipo." Warn
+                return 'Irreversible'
+            }
+            Enable-ScheduledTask -TaskPath $e.TaskPath -TaskName $e.TaskName -ErrorAction Stop | Out-Null
+            return 'Reverted'
+        }
+        'Firewall' {
+            $rules = @(Get-NetFirewallRule -DisplayName $e.RuleName -ErrorAction SilentlyContinue)
+            if ($rules.Count -gt 0) { $rules | Remove-NetFirewallRule -ErrorAction Stop }
+            return 'Reverted'
+        }
+        'File' {
+            if (-not $e.Backup) {
+                Write-EmiLog "No hay copia de $($e.Path): se borro sin respaldo y no se puede restaurar." Warn
+                return 'Irreversible'
+            }
+            if (-not (Test-Path -LiteralPath $e.Backup)) {
+                Write-EmiLog "Falta la copia $($e.Backup); no se puede restaurar $($e.Path)." Warn
+                return 'Irreversible'
+            }
+            Copy-Item -LiteralPath $e.Backup -Destination $e.Path -Force -ErrorAction Stop
+            return 'Reverted'
+        }
+        'Command' {
+            $c = ConvertTo-EmiUndoCommand $e
+            switch ([string]$c.Action) {
+                'AppxReinstall' {
+                    # Solo se puede volver a registrar si el paquete sigue en disco
+                    # (instalado para otro usuario o aun en WindowsApps).
+                    $src = Get-AppxPackage -AllUsers -Name $c.PackageName -ErrorAction SilentlyContinue |
+                           Where-Object { -not $_.IsFramework -and $_.InstallLocation -and
+                                          (Test-Path -LiteralPath (Join-Path $_.InstallLocation 'AppxManifest.xml')) } |
+                           Select-Object -First 1
+                    if (-not $src) {
+                        Write-EmiLog "$($c.PackageName) ya no esta en el equipo; reinstalala desde Microsoft Store (ms-windows-store://search/?query=$($c.PackageName))." Warn
+                        return 'Failed'
+                    }
+                    Add-AppxPackage -Register (Join-Path $src.InstallLocation 'AppxManifest.xml') -DisableDevelopmentMode -ErrorAction Stop
+                    return 'Reverted'
+                }
+                'WindowsFeature' {
+                    if ($c.OldState -in @('Enabled', 'EnablePending')) {
+                        Enable-WindowsOptionalFeature -Online -FeatureName $c.Feature -NoRestart -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
                     } else {
-                        Remove-ItemProperty -LiteralPath $e.Path -Name $e.Name -Force -ErrorAction SilentlyContinue
+                        Disable-WindowsOptionalFeature -Online -FeatureName $c.Feature -NoRestart -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
                     }
-                    $n++
+                    return 'Reverted'
                 }
-                'Service' {
-                    $map = @{ 'Auto' = 'Automatic'; 'Automatic' = 'Automatic'; 'Manual' = 'Manual'; 'Disabled' = 'Disabled' }
-                    $st  = $map[[string]$e.OldStartMode]
-                    if ($st) { Set-Service -Name $e.Name -StartupType $st -ErrorAction SilentlyContinue }
-                    if ($e.OldStatus -eq 'Running') { Start-Service -Name $e.Name -ErrorAction SilentlyContinue }
-                    $n++
+                'Hibernate' {
+                    & powercfg.exe /hibernate on 2>&1 | Out-Null
+                    if ($LASTEXITCODE -ne 0) { Write-EmiLog "powercfg /hibernate on devolvio $LASTEXITCODE." Warn; return 'Failed' }
+                    return 'Reverted'
                 }
-                'Task' {
-                    Enable-ScheduledTask -TaskPath $e.TaskPath -TaskName $e.TaskName -ErrorAction SilentlyContinue | Out-Null
-                    $n++
-                }
-                'Firewall' {
-                    Get-NetFirewallRule -DisplayName $e.RuleName -ErrorAction SilentlyContinue |
-                        Remove-NetFirewallRule -ErrorAction SilentlyContinue
-                    $n++
-                }
-                'File' {
-                    if ($e.Backup -and (Test-Path -LiteralPath $e.Backup)) {
-                        Copy-Item -LiteralPath $e.Backup -Destination $e.Path -Force -ErrorAction SilentlyContinue
-                        $n++
+                'EnvVars' {
+                    $scope = if ($c.Scope) { [string]$c.Scope } else { 'User' }
+                    foreach ($v in @($c.Variables)) {
+                        [System.Environment]::SetEnvironmentVariable([string]$v.Name, $v.OldValue, $scope)
                     }
+                    return 'Reverted'
+                }
+                'Manual' {
+                    Write-EmiLog "Revertir a mano: $($c.Hint)" Warn
+                    return 'Irreversible'
+                }
+                default {
+                    Write-EmiLog "Accion de deshacer desconocida: '$($c.Action)'." Warn
+                    return 'Failed'
                 }
             }
         }
-        catch { Write-EmiLog "Revertir '$($e.Kind)': $($_.Exception.Message)" Warn }
+        default {
+            Write-EmiLog "Tipo de cambio desconocido en el diario: '$($e.Kind)'." Warn
+            return 'Failed'
+        }
+    }
+}
+
+function Undo-EmiChanges {
+    <#  Revierte lo registrado en el diario, de lo mas reciente a lo mas antiguo.
+        Lo que no se pudo revertir se queda en el diario para el siguiente intento. #>
+    $entries = @(Get-EmiJournal)
+    $lost    = Get-EmiJournalLostCount
+    if ($lost -gt 0) {
+        Write-EmiLog "$lost entradas antiguas del diario estaban danadas y no se pueden revertir." Warn
+    }
+    if ($entries.Count -eq 0) {
+        if ($lost -gt 0) { Clear-EmiJournal } else { Write-EmiLog 'No hay cambios que revertir.' Warn }
+        return 0
     }
 
-    Clear-EmiJournal
+    $n = 0; $skipped = 0
+    $pending = New-Object System.Collections.ArrayList
+    for ($i = $entries.Count - 1; $i -ge 0; $i--) {
+        $e = $entries[$i]
+        $r = 'Failed'
+        try { $r = [string](Invoke-EmiUndoEntry $e | Select-Object -Last 1) }
+        catch { Write-EmiLog "Revertir '$($e.Kind)': $($_.Exception.Message)" Warn; $r = 'Failed' }
+        switch ($r) {
+            'Reverted'     { $n++ }
+            'Irreversible' { $skipped++ }
+            default        { [void]$pending.Insert(0, $e) }   # conserva el orden original
+        }
+    }
+
+    try { Set-EmiJournalContent -Entries $pending.ToArray() }
+    catch { Write-EmiLog "No se pudo actualizar el diario: $($_.Exception.Message)" Error }
+
     Write-EmiLog "Se revirtieron $n cambios." Ok
+    if ($skipped -gt 0) { Write-EmiLog "$skipped cambios no se pueden deshacer automaticamente (ver avisos)." Warn }
+    if ($pending.Count -gt 0) { Write-EmiLog "$($pending.Count) cambios no se pudieron revertir y siguen en el diario para reintentarlo." Warn }
     return $n
 }
 

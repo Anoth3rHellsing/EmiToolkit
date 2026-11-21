@@ -72,11 +72,16 @@ Al terminar muestra cuánto espacio se liberó y recomienda reiniciar.
 
 ## Deshacer
 
-Cada cambio del registro, servicio, tarea programada, entrada de arranque y regla
-de firewall se guarda en `Data\undo-journal.json` con su valor anterior.
+Cada cambio del registro, servicio, tarea programada, entrada de arranque, regla
+de firewall, app quitada, característica de Windows, hibernación y variable de
+entorno se guarda en `Data\undo-journal.jsonl` (una línea por cambio) con su
+valor anterior. El `undo-journal.json` de versiones anteriores se sigue leyendo.
 
 **Registro y deshacer → Revertir todos los cambios** lo devuelve todo a su estado
-original, en orden inverso. Además queda el punto de restauración del sistema.
+original, en orden inverso. Lo que no se pueda revertir en ese momento se queda
+en el diario para volver a intentarlo; lo que nunca se podrá deshacer (archivos
+borrados sin copia) se avisa en el registro. Además queda el punto de
+restauración del sistema.
 
 Los archivos borrados desde el buscador van a la **papelera**, no se eliminan.
 
@@ -94,7 +99,7 @@ robocopy "\\servidor\compartido\EmiToolkit" "C:\EmiToolkit" /E
 Luego se ejecuta `C:\EmiToolkit\EmiToolkit.cmd` en cada equipo.
 
 Cada máquina genera su propio `Data\EmiToolkit_AAAAMMDD.log` y su propio
-`undo-journal.json`, así que conviene **copiar la carpeta limpia** a cada equipo
+`undo-journal.jsonl`, así que conviene **copiar la carpeta limpia** a cada equipo
 (sin la carpeta `Data` de otro) para que el "deshacer" corresponda a esa máquina.
 
 ### Sin interfaz

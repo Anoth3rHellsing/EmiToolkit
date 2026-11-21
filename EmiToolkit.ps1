@@ -117,13 +117,16 @@ $busyAmber = [Windows.Media.BrushConverter]::new().ConvertFrom('#FFE08C1E')
 #                      MOTOR DE TAREAS EN SEGUNDO PLANO
 # ======================================================================
 
-$script:Preamble = @"
-`$ErrorActionPreference = 'Continue'
-foreach (`$m in @('$($ModuleNames -join "','")')) {
-    Import-Module (Join-Path '$ModuleDir' "`$m.psm1") -Force -DisableNameChecking
+# Las rutas llegan al runspace como variables (SessionStateProxy.SetVariable en
+# Start-EmiWork), no pegadas en el texto: una ruta con apostrofo, como
+# C:\Users\O'Brien, romperia el script.
+$script:Preamble = @'
+$ErrorActionPreference = 'Continue'
+foreach ($m in $EmiModuleNames) {
+    Import-Module (Join-Path $EmiModuleDir "$m.psm1") -Force -DisableNameChecking
 }
-Initialize-EmiCore -RootPath '$Root'
-"@
+Initialize-EmiCore -RootPath $EmiRootPath
+'@
 
 function Set-EmiBusy {
     param([bool] $Busy, [string] $Text = 'Listo')
@@ -164,6 +167,9 @@ function Start-EmiWork {
         $rs.Open()
         $rs.SessionStateProxy.SetVariable('EmiSync', $global:EmiSync)
         $rs.SessionStateProxy.SetVariable('P', $Parameters)
+        $rs.SessionStateProxy.SetVariable('EmiRootPath', $Root)
+        $rs.SessionStateProxy.SetVariable('EmiModuleDir', $ModuleDir)
+        $rs.SessionStateProxy.SetVariable('EmiModuleNames', [string[]]$ModuleNames)
 
         $ps = [powershell]::Create()
         $ps.Runspace = $rs
@@ -641,7 +647,7 @@ $ui.BtnVaultUnlock.Add_Click({
         Write-EmiLog 'Almacen de contrasenas desbloqueado.' Ok
         Update-EmiVaultUI
     } else {
-        Write-EmiLog 'No se pudo verificar con Windows Hello.' Warn
+        Write-EmiLog 'No se pudo desbloquear el almacen de contrasenas (detalles arriba).' Warn
     }
 })
 
@@ -735,9 +741,9 @@ $ui.BtnVaultDelete.Add_Click({
     $delMsg = 'Eliminar la entrada ''' + $sel.AppName + '''? Esta accion no se puede deshacer.'
     $ans = [System.Windows.MessageBox]::Show($delMsg, 'Confirmar', 'YesNo', 'Warning')
     if ($ans -ne 'Yes') { return }
-    Remove-EmiVaultEntry -Id $sel.Id
+    $removed = Remove-EmiVaultEntry -Id $sel.Id
     Update-EmiVaultUI
-    Write-EmiLog ('Entrada ''' + $sel.AppName + ''' eliminada.') Ok
+    if ($removed) { Write-EmiLog ('Entrada ''' + $sel.AppName + ''' eliminada.') Ok }
 })
 
 # ======================================================================
@@ -893,11 +899,16 @@ $ui.BtnStoreUninstall.Add_Click({
                                        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
                                        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
                      Where-Object { $_.DisplayName -like "*$name*" } | Select-Object -First 1
-            if ($found -and $found.UninstallString) {
+            if ($found -and ($found.QuietUninstallString -or $found.UninstallString)) {
                 try {
-                    $cmd = $found.UninstallString
-                    if ($cmd -match '^".*"$') { $cmd = $cmd.Trim('"') }
-                    Start-Process -FilePath $cmd -ArgumentList '/S','/silent','/quiet' -Wait -ErrorAction Stop
+                    $u = Get-EmiUninstallCommand -QuietUninstallString $found.QuietUninstallString -UninstallString $found.UninstallString
+                    if ($u.Arguments) {
+                        $proc = Start-Process -FilePath $u.FilePath -ArgumentList $u.Arguments -Wait -PassThru -ErrorAction Stop
+                    } else {
+                        $proc = Start-Process -FilePath $u.FilePath -Wait -PassThru -ErrorAction Stop
+                    }
+                    # 3010/1641: MSI pide reiniciar, pero desinstalo bien
+                    if ($proc.ExitCode -notin @(0, 3010, 1641)) { throw ('el desinstalador devolvio el codigo ' + $proc.ExitCode) }
                     $ok++
                     Write-EmiLog ('Another Store: ' + $name + ' desinstalado.') Ok
                 } catch {
@@ -906,14 +917,14 @@ $ui.BtnStoreUninstall.Add_Click({
                 }
             } else {
                 $fail++
-                Write-EmiLog ('Another Store: ' + $name + ' no encontrado en el registro.') Warning
+                Write-EmiLog ('Another Store: ' + $name + ' no encontrado en el registro.') Warn
             }
         }
         return @{ Ok = $ok; Fail = $fail }
     } -OnDone {
         $r = $args[0]
         if ($r.Ok -gt 0) {
-            $storeResultMsg = $r.Ok + ' app(s) desinstalada(s). ' + $r.Fail + ' no encontrada(s) o con error.'
+            $storeResultMsg = [string]$r.Ok + ' app(s) desinstalada(s). ' + $r.Fail + ' no encontrada(s) o con error.'
             [System.Windows.MessageBox]::Show($storeResultMsg, 'Another''s Toolbox', 'OK', 'Information') | Out-Null
         } else {
             [System.Windows.MessageBox]::Show(
@@ -1148,8 +1159,14 @@ $ui.BtnUndoAll.Add_Click({
 
     Start-EmiWork -Label 'Revirtiendo cambios...' -Work { return (Undo-EmiChanges) } -OnDone {
         Update-EmiHome
-        [System.Windows.MessageBox]::Show('Cambios revertidos. Reinicia el equipo para que todo vuelva a su estado anterior.',
-            'Another''s Toolbox','OK','Information') | Out-Null
+        $left = @(Get-EmiJournal).Count
+        if ($left -gt 0) {
+            $undoDone = 'Se revirtieron ' + [string](@($args[0])[-1]) + ' cambios. ' + $left + ' no se pudieron revertir y siguen registrados (detalles en el registro). Reinicia el equipo y vuelve a intentarlo.'
+            [System.Windows.MessageBox]::Show($undoDone, 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
+        } else {
+            [System.Windows.MessageBox]::Show('Cambios revertidos. Reinicia el equipo para que todo vuelva a su estado anterior.',
+                'Another''s Toolbox','OK','Information') | Out-Null
+        }
     }
 })
 

@@ -243,9 +243,11 @@ function Invoke-EmiTweak {
 
         'Hibernate' {
             try {
+                # Solo se apunta si estaba activa: deshacer no debe encenderla si ya estaba apagada
+                $hib = (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name 'HibernateEnabled' -ErrorAction SilentlyContinue).HibernateEnabled
                 & powercfg.exe /hibernate off | Out-Null
                 Write-EmiLog 'Hibernacion desactivada (hiberfil.sys liberado).' Ok
-                Add-EmiJournalEntry @{ Kind='Command'; Undo='powercfg /hibernate on'; Module=$M }
+                if ($hib -ne 0) { Add-EmiJournalEntry @{ Kind='Command'; Action='Hibernate'; Module=$M } }
                 $n++
             } catch { Write-EmiLog "Hibernacion: $($_.Exception.Message)" Warn }
         }
@@ -318,12 +320,19 @@ function Invoke-EmiTweak {
         }
         'DevCliTelemetry' {
             try {
-                [System.Environment]::SetEnvironmentVariable('AZURE_CORE_COLLECT_TELEMETRY', 'false', 'User')
-                [System.Environment]::SetEnvironmentVariable('DOTNET_CLI_TELEMETRY_OPTOUT', '1', 'User')
-                [System.Environment]::SetEnvironmentVariable('BICEP_TELEMETRY_OPTOUT', 'true', 'User')
-                [System.Environment]::SetEnvironmentVariable('POWERSHELL_TELEMETRY_OPTOUT', '1', 'User')
-                [System.Environment]::SetEnvironmentVariable('NUGET_TELEMETRY_OPTOUT', 'true', 'User')
-                Add-EmiJournalEntry @{ Kind='Command'; Undo="[System.Environment]::SetEnvironmentVariable('AZURE_CORE_COLLECT_TELEMETRY',$null,'User');[System.Environment]::SetEnvironmentVariable('DOTNET_CLI_TELEMETRY_OPTOUT',$null,'User');[System.Environment]::SetEnvironmentVariable('BICEP_TELEMETRY_OPTOUT',$null,'User');[System.Environment]::SetEnvironmentVariable('POWERSHELL_TELEMETRY_OPTOUT',$null,'User');[System.Environment]::SetEnvironmentVariable('NUGET_TELEMETRY_OPTOUT',$null,'User')"; Module=$M }
+                $vars = [ordered]@{
+                    AZURE_CORE_COLLECT_TELEMETRY = 'false'
+                    DOTNET_CLI_TELEMETRY_OPTOUT  = '1'
+                    BICEP_TELEMETRY_OPTOUT       = 'true'
+                    POWERSHELL_TELEMETRY_OPTOUT  = '1'
+                    NUGET_TELEMETRY_OPTOUT       = 'true'
+                }
+                # Se guarda el valor previo de cada variable (null = no existia)
+                $old = @(foreach ($k in $vars.Keys) {
+                    [pscustomobject]@{ Name = $k; OldValue = [System.Environment]::GetEnvironmentVariable($k, 'User') }
+                })
+                foreach ($k in $vars.Keys) { [System.Environment]::SetEnvironmentVariable($k, $vars[$k], 'User') }
+                Add-EmiJournalEntry @{ Kind='Command'; Action='EnvVars'; Scope='User'; Variables=$old; Module=$M }
                 Write-EmiLog 'Variables de entorno CLI dev configuradas (requiere nuevo shell).' Ok
                 $n++
             } catch { Write-EmiLog "Env vars CLI: $($_.Exception.Message)" Warn }

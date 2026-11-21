@@ -1,6 +1,8 @@
 # =====================================================================
 #  EmiVault.psm1 - Almacen local de contrasenas cifrado con DPAPI
-#  Protegido por Windows Hello. Los datos nunca salen del equipo.
+#  El cifrado es DPAPI del usuario de Windows (CurrentUser): cualquier proceso
+#  que corra con ese usuario puede descifrar vault.dat. Windows Hello solo es
+#  la puerta de esta interfaz, no forma parte del cifrado.
 # =====================================================================
 
 $script:VaultPath      = $null
@@ -159,7 +161,14 @@ function Request-EmiVaultUnlock {
             'Desbloquear almacen de contrasenas de Emi Toolkit'))
 
         if ($result -eq 'Verified') {
-            $entries = Load-EmiVaultRaw
+            # Si vault.dat no se puede descifrar (otro usuario u otro equipo, p. ej.
+            # la carpeta sincronizada por OneDrive), la boveda sigue bloqueada:
+            # abrirla vacia haria que el siguiente guardado borrase lo que hay.
+            try { $entries = @(Load-EmiVaultRaw) }
+            catch {
+                Write-EmiLog "No se pudo descifrar vault.dat: $($_.Exception.Message). Solo lo abre el mismo usuario de Windows en el equipo donde se creo. La boveda sigue bloqueada y el archivo no se toca." Error
+                return $false
+            }
             $script:VaultEntries  = $entries
             $script:VaultUnlocked = $true
             return $true
@@ -190,23 +199,30 @@ function Test-EmiVaultUnlocked {
 #  Lectura / escritura cifrada
 # ------------------------------------------------------------------
 function Load-EmiVaultRaw {
+    <#  Devuelve las entradas de vault.dat (ninguna si aun no existe).
+        Lanza una excepcion si el archivo existe pero no se puede descifrar
+        o leer: quien llama debe dejar la boveda bloqueada. #>
     if (-not (Test-Path -LiteralPath $script:VaultPath)) { return @() }
-    try {
-        $protected = [System.IO.File]::ReadAllBytes($script:VaultPath)
-        $bytes     = [System.Security.Cryptography.ProtectedData]::Unprotect(
-                         $protected, $null,
-                         [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
-        $json = [System.Text.Encoding]::UTF8.GetString($bytes)
-        $obj  = $json | ConvertFrom-Json
-        if ($obj.entries) { return @($obj.entries) }
-        return @()
-    } catch {
-        Write-EmiLog "Error al descifrar la boveda: $($_.Exception.Message)" Error
-        return @()
+    $protected = [System.IO.File]::ReadAllBytes($script:VaultPath)
+    $bytes     = [System.Security.Cryptography.ProtectedData]::Unprotect(
+                     $protected, $null,
+                     [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+    $json = [System.Text.Encoding]::UTF8.GetString($bytes)
+    $obj  = ConvertFrom-Json -InputObject $json
+    if ($null -eq $obj -or -not ($obj.PSObject.Properties.Name -contains 'entries')) {
+        throw 'vault.dat no tiene el formato esperado.'
     }
+    if ($obj.entries) { return @($obj.entries) }
+    return @()
 }
 
 function Save-EmiVault {
+    # Solo se guarda una boveda que se abrio bien; si no, se sobrescribiria
+    # vault.dat con una lista vacia o incompleta.
+    if (-not $script:VaultUnlocked) {
+        Write-EmiLog 'La boveda esta bloqueada; no se guarda nada.' Warn
+        return $false
+    }
     try {
         $data = @{ version = 1; entries = @($script:VaultEntries) }
         $json  = $data | ConvertTo-Json -Depth 5 -Compress
@@ -221,6 +237,8 @@ function Save-EmiVault {
         $tmp = "$($script:VaultPath).tmp"
         [System.IO.File]::WriteAllBytes($tmp, $protected)
         if (Test-Path -LiteralPath $script:VaultPath) {
+            # Copia de la version anterior antes de reemplazarla
+            Copy-Item -LiteralPath $script:VaultPath -Destination "$($script:VaultPath).bak" -Force -ErrorAction Stop
             Move-Item -LiteralPath $tmp -Destination $script:VaultPath -Force
         } else {
             Rename-Item -LiteralPath $tmp -NewName (Split-Path $script:VaultPath -Leaf) -Force
@@ -281,16 +299,19 @@ function Add-EmiVaultEntry {
         createdUtc  = $now
         modifiedUtc = $now
     }
-    $script:VaultEntries = @($script:VaultEntries) + @($newEntry)
-    Save-EmiVault
+    $before = @($script:VaultEntries)
+    $script:VaultEntries = $before + @($newEntry)
+    if (-not (Save-EmiVault)) { $script:VaultEntries = $before; return $null }
     return $newEntry.id
 }
 
 function Remove-EmiVaultEntry {
     param([Parameter(Mandatory)][string] $Id)
-    if (-not $script:VaultUnlocked) { return }
-    $script:VaultEntries = @($script:VaultEntries | Where-Object { $_.id -ne $Id })
-    Save-EmiVault
+    if (-not $script:VaultUnlocked) { return $false }
+    $before = @($script:VaultEntries)
+    $script:VaultEntries = @($before | Where-Object { $_.id -ne $Id })
+    if (-not (Save-EmiVault)) { $script:VaultEntries = $before; return $false }
+    return $true
 }
 
 # ------------------------------------------------------------------

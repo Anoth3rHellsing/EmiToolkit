@@ -101,11 +101,13 @@ function Remove-EmiInstalledApp {
             Write-EmiLog "$($pkg.Name) removida de provisioned packages." Ok
         }
 
+        # Solo datos: Undo-EmiChanges hace el Add-AppxPackage -Register
         Add-EmiJournalEntry @{
-            Kind        = 'Command'
-            Undo        = "Add-AppxPackage -Register (Get-AppxPackage -AllUsers -Name '$($pkg.Name)' | Where-Object { -not \$_.IsFramework } | Select-Object -First 1).InstallLocation -DisableDevelopmentMode -ErrorAction SilentlyContinue; Write-EmiLog 'Intenta reinstalar $($pkg.Name) con Add-AppxPackage -Register. Si falla, busca la app en Microsoft Store.' Info"
-            Module      = 'Apps'
-            PackageName = $pkg.Name
+            Kind              = 'Command'
+            Action            = 'AppxReinstall'
+            PackageName       = $pkg.Name
+            PackageFamilyName = $pkg.PackageFamilyName
+            Module            = 'Apps'
         }
         return $true
     } catch {
