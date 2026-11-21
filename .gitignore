@@ -5,3 +5,10 @@ __pycache__/
 .DS_Store
 Thumbs.db
 $*/
+# Datos de cada maquina: diario de deshacer, copias de hosts, boveda, logs.
+# La carpeta la crea Initialize-EmiCore al arrancar si no existe.
+Data/*
+!Data/desktop.ini
+*.zip
+# Script de depuracion suelto (con una ruta personal)
+$($m.ReturnType.Name)
