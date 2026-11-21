@@ -665,6 +665,24 @@ $ui.BtnGenPassword.Add_Click({
     $ui.TxtGenPassword.Text = $pw
 })
 
+# El portapapeles puede estar abierto por otro proceso (AnyDesk, RDP, el
+# historial de Windows): SetText lanza CLIPBRD_E_CANT_OPEN. Se reintenta unas
+# veces y, si sigue ocupado, se avisa en el registro en vez de fallar.
+function Set-EmiClipboardText {
+    param([string] $Text, [int] $Attempts = 5)
+    for ($i = 1; $i -le $Attempts; $i++) {
+        try { [System.Windows.Clipboard]::SetText($Text); return $true }
+        catch {
+            if ($i -eq $Attempts) {
+                Write-EmiLog ('No se pudo usar el portapapeles (otro programa lo tiene abierto): ' + $_.Exception.Message) Warn
+                return $false
+            }
+            Start-Sleep -Milliseconds 80
+        }
+    }
+    return $false
+}
+
 # Copia un secreto al portapapeles y lo limpia a los 30 segundos
 function Copy-EmiSecret {
     param([string] $Text, [string] $Label)
@@ -732,8 +750,9 @@ $ui.BtnVaultCopyEmail.Add_Click({
     if (-not $sel) { return }
     $entry = Get-EmiVaultEntryPlain -Id $sel.Id
     if ($entry -and $entry.Email) {
-        [System.Windows.Clipboard]::SetText($entry.Email)
-        Write-EmiLog ('Correo de ''' + $entry.AppName + ''' copiado.') Ok
+        if (Set-EmiClipboardText $entry.Email) {
+            Write-EmiLog ('Correo de ''' + $entry.AppName + ''' copiado.') Ok
+        }
     }
 })
 
@@ -1184,6 +1203,30 @@ $ui.BtnMax.Add_Click({
     $win.WindowState = if ($win.WindowState -eq 'Maximized') { 'Normal' } else { 'Maximized' }
 })
 
+# Red de seguridad: un error en cualquier manejador de la interfaz (un clic,
+# el temporizador, el portapapeles ocupado por AnyDesk o RDP...) no debe
+# cerrar la aplicacion. Se registra, se avisa y se marca como manejado.
+$script:UiStarted   = $false
+$script:InUiFailure = $false
+$win.Dispatcher.Add_UnhandledException({
+    param($sender, $e)
+    $e.Handled = $true
+    if ($script:InUiFailure) { return }
+    $script:InUiFailure = $true
+    try {
+        $ex  = $e.Exception
+        $msg = $ex.GetBaseException().Message
+        $where = ''
+        if ($ex -is [System.Management.Automation.IContainsErrorRecord] -and $ex.ErrorRecord.InvocationInfo) {
+            $where = ' (linea ' + $ex.ErrorRecord.InvocationInfo.ScriptLineNumber + ')'
+        }
+        try { Write-EmiLog ('Error en la interfaz' + $where + ': ' + $msg) Error } catch { }
+        Write-RuntimeError -Message ('Error en la interfaz' + $where + ': ' + $ex.ToString())
+        $uiErrMsg = 'Esta accion ha fallado, pero la aplicacion sigue abierta.' + "`n`n" + $msg + "`n`n" + 'Los detalles estan en el registro.'
+        [System.Windows.MessageBox]::Show($uiErrMsg, 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
+    } catch { } finally { $script:InUiFailure = $false }
+})
+
 $win.Add_SourceInitialized({
     try {
         $h = (New-Object System.Windows.Interop.WindowInteropHelper($win)).Handle
@@ -1192,6 +1235,7 @@ $win.Add_SourceInitialized({
 })
 
 $win.Add_Loaded({
+    $script:UiStarted = $true
     Update-EmiHome
     Update-EmiAnyDesk
     $ui.TbHeaderHint.Text = $env:COMPUTERNAME + ' - mantenimiento de Windows 11'
@@ -1209,8 +1253,11 @@ $win.Add_Closed({
     $errMsg = $_.Exception.Message
     $errLine = $_.InvocationInfo.ScriptLineNumber
     $errFile = $_.InvocationInfo.ScriptName
-    $fullMsg = 'Error al iniciar EmiToolkit:' + "`n`n" + $errMsg + "`n`n" + 'Línea: ' + $errLine + "`n" + 'en ' + $errFile
+    # Solo es un fallo de arranque si la ventana no llego a cargarse; despues,
+    # lo que llegue aqui ha cerrado la aplicacion en plena sesion.
+    $errHead = if ($script:UiStarted) { 'Another''s Toolbox se ha cerrado por un error inesperado:' } else { 'Error al iniciar Another''s Toolbox:' }
+    $fullMsg = $errHead + "`n`n" + $errMsg + "`n`n" + 'Línea: ' + $errLine + "`n" + 'en ' + $errFile
     Write-RuntimeError -Message $fullMsg
     [void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
-    [System.Windows.Forms.MessageBox]::Show($fullMsg + "`n`nLog: " + (Join-Path $Root 'Data\runtime-error.log'), 'EmiToolkit Error', 'OK', 'Error') | Out-Null
+    [System.Windows.Forms.MessageBox]::Show($fullMsg + "`n`nLog: " + (Join-Path $Root 'Data\runtime-error.log'), 'Another''s Toolbox: error', 'OK', 'Error') | Out-Null
 }
