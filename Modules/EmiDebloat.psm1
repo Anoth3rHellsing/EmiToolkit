@@ -1,4 +1,4 @@
-# EmiDebloat.psm1 — App removal y Optional Features (Win11Debloat integration)
+﻿# EmiDebloat.psm1 — App removal y Optional Features (Win11Debloat integration)
 # ADITIVO: no modifica ningun modulo existente. Usa helpers de EmiCore.
 
 Set-StrictMode -Version Latest
@@ -8,7 +8,7 @@ $script:BloatApps = @(
     @{ Id='RemoveBingNews';      Pkg='Microsoft.BingNews_8wekyb3d8bbwe';                Name='Bing News';              Recommended=$true;  Info='Noticias MSN integradas' }
     @{ Id='RemoveBingWeather';   Pkg='Microsoft.BingWeather_8wekyb3d8bbwe';               Name='Bing Weather';           Recommended=$true;  Info='App del tiempo MSN' }
     @{ Id='RemoveZuneVideo';     Pkg='Microsoft.ZuneVideo_8wekyb3d8bbwe';                 Name='Películas y TV';         Recommended=$true;  Info='Reproductor de video legacy' }
-    @{ Id='RemoveZuneMusic';     Pkg='Microsoft.ZuneMusic_8wekyb3d8bbwe';                 Name='Groove Musica';          Recommended=$true;  Info='Reproductor de musica legacy' }
+    @{ Id='RemoveZuneMusic';     Pkg='Microsoft.ZuneMusic_8wekyb3d8bbwe';                 Name='Reproductor multimedia (el actual)'; Recommended=$false; Info='AVISO: es el reproductor de audio y video por defecto de Windows 11; sin el y sin Películas y TV no queda reproductor' }
     @{ Id='RemoveSolitaire';     Pkg='Microsoft.MicrosoftSolitaireCollection_8wekyb3d8bbwe';Name='Solitario Collection'; Recommended=$true;  Info='Juegos de cartas con anuncios' }
     @{ Id='RemoveMixedReality';  Pkg='Microsoft.MixedReality.Portal_8wekyb3d8bbwe';       Name='Mixed Reality Portal';   Recommended=$true;  Info='Portal de realidad mixta' }
     @{ Id='RemoveSkypeApp';      Pkg='Microsoft.SkypeApp_kzf8qxf38zg5c';                  Name='Skype';                Recommended=$true;  Info='Cliente Skype UWP' }
@@ -19,7 +19,7 @@ $script:BloatApps = @(
     @{ Id='Remove3DViewer';      Pkg='Microsoft.Microsoft3DViewer_8wekyb3d8bbwe';         Name='Visor 3D';             Recommended=$true;  Info='Visor de modelos 3D' }
     @{ Id='RemovePaint3D';       Pkg='Microsoft.MSPaint_8wekyb3d8bbwe';                   Name='Paint 3D';             Recommended=$true;  Info='Editor 3D legacy' }
     @{ Id='RemoveClipchamp';     Pkg='Clipchamp.Clipchamp_yxz26nhyzhsrt';                 Name='Clipchamp';            Recommended=$true;  Info='Editor de video web-based' }
-    @{ Id='RemoveTeamsConsumer'; Pkg='MSTeams_8wekyb3d8bbwe';                             Name='Teams (consumer)';     Recommended=$false; Info='AVISO: Teams personal, no empresarial' }
+    @{ Id='RemoveTeamsConsumer'; Pkg='MSTeams_8wekyb3d8bbwe';                             Name='Microsoft Teams (nuevo)'; Recommended=$false; Info='AVISO: es el Teams actual, el mismo que se usa para trabajo y clase' }
     @{ Id='RemoveOutlookNew';    Pkg='Microsoft.OutlookForWindows_8wekyb3d8bbwe';         Name='Nuevo Outlook';        Recommended=$false; Info='Outlook PWA reemplazo de Mail' }
     @{ Id='RemovePhoneLink';     Pkg='Microsoft.YourPhone_8wekyb3d8bbwe';                 Name='Enlace a telefono';    Recommended=$true;  Info='Sincronizacion movil-PC' }
     @{ Id='RemoveCortana';       Pkg='Microsoft.549981C3F5F10_8wekyb3d8bbwe';             Name='Cortana';              Recommended=$true;  Info='Asistente deprecated por MS' }
@@ -40,14 +40,25 @@ $script:OptionalFeatures = @(
     @{ Id='DisableMediaPlayer';  Feature='WindowsMediaPlayer';               Name='WMP Legacy';         Action='Disable'; Recommended=$false; Info='AVISO: quita reproductor clasico' }
 )
 
+# Paquete por PackageFamilyName o, si no, por Name (exactos).
+function Find-EmiAppxByFamily {
+    param([object[]] $Packages, [string] $Family)
+    foreach ($p in $Packages) { if ($p.PackageFamilyName -eq $Family) { return $p } }
+    foreach ($p in $Packages) { if ($p.Name -eq $Family) { return $p } }
+    return $null
+}
+
 # ============================================================
 # Catalogo unificado: apps + optional features
 # ============================================================
 function Get-EmiDebloatItems {
     $items = @()
 
+    # Pkg es un PackageFamilyName (Nombre_IdEditor) y Get-AppxPackage -Name solo
+    # compara con Name: se lee la lista una vez y se filtra por familia.
+    $allPkgs = @(Get-AppxPackage -ErrorAction SilentlyContinue)
     foreach ($app in $script:BloatApps) {
-        $installed = $null -ne (Get-AppxPackage -Name $app.Pkg -ErrorAction SilentlyContinue)
+        $installed = $null -ne (Find-EmiAppxByFamily -Packages $allPkgs -Family $app.Pkg)
         $items += [pscustomobject]@{
             Id          = $app.Id
             Name        = $app.Name
@@ -153,9 +164,7 @@ function Remove-EmiAppxPackage {
     # 1. Verificar si esta instalada para el usuario actual. La tabla guarda el
     #    PackageFamilyName (Nombre_IdEditor), que Get-AppxPackage -Name no reconoce:
     #    se busca por familia y, si no, por nombre.
-    $pkg = Get-AppxPackage -ErrorAction SilentlyContinue |
-           Where-Object { $_.PackageFamilyName -eq $PackageFamilyName -or $_.Name -eq $PackageFamilyName } |
-           Select-Object -First 1
+    $pkg = Find-EmiAppxByFamily -Packages @(Get-AppxPackage -ErrorAction SilentlyContinue) -Family $PackageFamilyName
     if (-not $pkg) {
         Write-EmiLog "$PackageFamilyName no esta instalada; omitida." Info
         return $false
@@ -199,7 +208,7 @@ function Get-EmiAppxList {
     $allPkgs = Get-AppxPackage -ErrorAction SilentlyContinue
     $results = @()
     foreach ($app in $script:BloatApps) {
-        $found = $allPkgs | Where-Object { $_.Name -eq $app.Pkg }
+        $found = Find-EmiAppxByFamily -Packages $allPkgs -Family $app.Pkg
         if ($found) {
             $results += [pscustomobject]@{
                 Id      = $app.Id

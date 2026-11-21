@@ -1,29 +1,71 @@
-# EmiApps.psm1 — Desinstalar apps AppX instaladas y limpiar su cache
+﻿# EmiApps.psm1 — Desinstalar apps AppX instaladas y limpiar su cache
 # ADITIVO: no modifica ningun modulo existente. Usa helpers de EmiCore.
 
 Set-StrictMode -Version Latest
 
-# --- Paquetes del sistema que NUNCA deben ofrecerse para desinstalar ---
-$script:ProtectedPrefixes = @(
-    'Microsoft.Windows.ShellExperienceHost',
-    'Microsoft.Windows.StartMenuExperienceHost',
-    'Microsoft.Windows.SearchExperienceHost' # if present
-    'Microsoft.AAD.BrokerPlugin',
-    'Microsoft.Windows.CloudExperienceHost',
-    'Microsoft.Windows.AssignedAccessLockApp',
-    'Microsoft.Windows.CapturePicker',
-    'Microsoft.Windows.ContentDeliveryManager',
-    'Microsoft.Windows.PinningConfirmationDialog',
-    'Microsoft.Windows.SecHealthUI',
-    'Microsoft.WindowsAppRuntime.CBS',
-    'Microsoft.UI.Xaml.',
-    'Microsoft.Services.Store.Engagement',
-    'Microsoft.WindowsXGpu',
-    'Microsoft.YourPhoneGameBar' # placeholder; harmless if not present
-    'windows.immersivecontrolpanel',
-    'Microsoft.NET.Native',
-    'Microsoft.VCLibs',
-    'Microsoft.Windows.Cortana' # handled by Debloat with journal entry
+# --- Paquetes que NUNCA deben ofrecerse para desinstalar (patrones -like) ---
+# Como tambien se quita el paquete aprovisionado, casi nada de esto se puede
+# recuperar con Revertir (auditoria de sistema, EmiApps.psm1:7-27). Ademas de
+# esta lista se rechaza todo lo que Windows marca como del sistema
+# (SignatureKind = System), no desinstalable (NonRemovable) o framework.
+$script:ProtectedPatterns = @(
+    # Shell e interfaz del sistema
+    'Microsoft.Windows.ShellExperienceHost*',
+    'Microsoft.Windows.StartMenuExperienceHost*',
+    'Microsoft.Windows.SearchExperienceHost*',
+    'Microsoft.AAD.BrokerPlugin*',
+    'Microsoft.Windows.CloudExperienceHost*',
+    'Microsoft.Windows.AssignedAccessLockApp*',
+    'Microsoft.Windows.CapturePicker*',
+    'Microsoft.Windows.ContentDeliveryManager*',
+    'Microsoft.Windows.PinningConfirmationDialog*',
+    'MicrosoftWindows.Client.*',
+    'windows.immersivecontrolpanel*',
+    'Microsoft.MicrosoftEdge*',
+    'Microsoft.Windows.Cortana*',             # lo gestiona Debloat con su diario
+    # Seguridad (el nombre real es Microsoft.SecHealthUI; Microsoft.Windows.SecHealthUI no existe)
+    'Microsoft.SecHealthUI*',
+    # Tienda e instalador: sin ellos no se puede reinstalar nada (ni winget)
+    'Microsoft.WindowsStore*',
+    'Microsoft.StorePurchaseApp*',
+    'Microsoft.DesktopAppInstaller*',
+    'Microsoft.Services.Store.Engagement*',
+    # Idiomas: quitar el paquete devuelve la interfaz al ingles
+    'Microsoft.LanguageExperiencePack*',
+    # Codecs (HEVC es de pago)
+    'Microsoft.HEVCVideoExtension*',
+    'Microsoft.VP9VideoExtensions*',
+    'Microsoft.AV1VideoExtension*',
+    'Microsoft.MPEG2VideoExtension*',
+    'Microsoft.AVCEncoderVideoExtension*',
+    'Microsoft.HEIFImageExtension*',
+    'Microsoft.WebpImageExtension*',
+    'Microsoft.RawImageExtension*',
+    'Microsoft.WebMediaExtensions*',
+    'Microsoft.DolbyAudioExtensions*',
+    # Runtimes y frameworks
+    'Microsoft.VCLibs*',
+    'Microsoft.UI.Xaml*',
+    'Microsoft.NET.Native*',
+    'Microsoft.WindowsAppRuntime*',
+    'MicrosoftCorporationII.WinAppRuntime*',
+    'Microsoft.WidgetsPlatformRuntime*',
+    'Microsoft.DirectXRuntime*',
+    'Microsoft.WindowsXGpu*',
+    'Microsoft.OneDriveSync*',
+    'Microsoft.ApplicationCompatibilityEnhancements*',
+    # Xbox: identidad y servicios de juego (la app Xbox si se puede quitar)
+    'Microsoft.XboxIdentityProvider*',
+    'Microsoft.GamingServices*',
+    # Paneles del fabricante (audio, graficos, touchpad)
+    'NVIDIACorp.NVIDIAControlPanel*',
+    'RealtekSemiconductorCorp.*',
+    'DolbyLaboratories.*',
+    'WavesAudio.*',
+    'AppUp.IntelGraphicsExperience*',
+    'AdvancedMicroDevicesInc-2.*',
+    'SynapticsIncorporated.*',
+    'ELANMicroelectronicsCorpo.*'
 )
 
 # --- Rutas tipicas de cache/temp por familia de apps ---
@@ -32,11 +74,51 @@ $script:CacheDirs = @(
 )
 
 function Test-EmiProtectedApp {
+    <#  Por nombre de paquete (Name o PackageFullName).  #>
     param([Parameter(Mandatory)][string] $PackageFullName)
-    foreach ($p in $script:ProtectedPrefixes) {
-        if ($PackageFullName -like "$p*") { return $true }
+    foreach ($p in $script:ProtectedPatterns) {
+        if ($PackageFullName -like $p) { return $true }
     }
     return $false
+}
+
+function Get-EmiPkgProp {
+    param($Package, [string] $Name)
+    $pr = $Package.PSObject.Properties[$Name]
+    if ($pr) { return $pr.Value }
+    return $null
+}
+
+function Test-EmiProtectedAppx {
+    <#  Logica pura sobre el objeto que devuelve Get-AppxPackage: lista de
+        protegidos, paquetes del sistema, no desinstalables y frameworks.  #>
+    param([Parameter(Mandatory)] $Package)
+    if (Test-EmiProtectedApp -PackageFullName ([string](Get-EmiPkgProp $Package 'Name'))) { return $true }
+    if ("$(Get-EmiPkgProp $Package 'SignatureKind')" -eq 'System') { return $true }
+    if ((Get-EmiPkgProp $Package 'NonRemovable') -eq $true) { return $true }
+    if ((Get-EmiPkgProp $Package 'IsFramework') -eq $true) { return $true }
+    return $false
+}
+
+function Find-EmiAppxPackage {
+    <#  Busca en una lista de paquetes por PackageFullName, PackageFamilyName
+        o Name exactos. Get-AppxPackage -Name solo compara con Name, asi que
+        pasarle un nombre completo o de familia no encontraba nunca nada.  #>
+    param([object[]] $Packages, [string] $FullName, [string] $FamilyName, [string] $Name)
+    foreach ($p in $Packages) {
+        if ($FullName   -and (Get-EmiPkgProp $p 'PackageFullName')   -eq $FullName)   { return $p }
+        if ($FamilyName -and (Get-EmiPkgProp $p 'PackageFamilyName') -eq $FamilyName) { return $p }
+        if ($Name       -and (Get-EmiPkgProp $p 'Name')              -eq $Name)       { return $p }
+    }
+    return $null
+}
+
+function Get-EmiFamilyFromFullName {
+    <#  Nombre_Version_Arquitectura_Recurso_IdEditor -> Nombre_IdEditor  #>
+    param([string] $PackageFullName)
+    $parts = $PackageFullName -split '_'
+    if ($parts.Count -lt 2) { return $PackageFullName }
+    return "$($parts[0])_$($parts[-1])"
 }
 
 function Get-EmiPackageCacheSize {
@@ -56,11 +138,11 @@ function Get-EmiPackageCacheSize {
 # Lista de apps instaladas para la UI
 # ============================================================
 function Get-EmiInstalledApps {
-    $pkgs = @(Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { $_.IsFramework -eq $false })
+    $pkgs = @(Get-AppxPackage -ErrorAction SilentlyContinue)
     $items = New-Object System.Collections.ArrayList
 
     foreach ($pkg in $pkgs) {
-        if (Test-EmiProtectedApp -PackageFullName $pkg.Name) { continue }
+        if (Test-EmiProtectedAppx -Package $pkg) { continue }
 
         $cacheSize = Get-EmiPackageCacheSize -PackageFamilyName $pkg.PackageFamilyName
         $items.Add([pscustomobject]@{
@@ -80,12 +162,12 @@ function Get-EmiInstalledApps {
 function Remove-EmiInstalledApp {
     param([Parameter(Mandatory)][string] $PackageFullName)
 
-    $pkg = Get-AppxPackage -Name $PackageFullName -ErrorAction SilentlyContinue
+    $pkg = Find-EmiAppxPackage -Packages @(Get-AppxPackage -ErrorAction SilentlyContinue) -FullName $PackageFullName
     if (-not $pkg) {
         Write-EmiLog "$PackageFullName no esta instalada; omitida." Info
         return $false
     }
-    if (Test-EmiProtectedApp -PackageFullName $pkg.Name) {
+    if (Test-EmiProtectedAppx -Package $pkg) {
         Write-EmiLog "$($pkg.Name) es un paquete del sistema protegido; no se toca." Warn
         return $false
     }
@@ -95,7 +177,7 @@ function Remove-EmiInstalledApp {
         Write-EmiLog "$($pkg.Name) removida (usuario actual)." Ok
 
         $prov = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
-                Where-Object { $_.PackageName -like "*$($pkg.Name)*" }
+                Where-Object { $_.DisplayName -eq $pkg.Name }
         if ($prov) {
             Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction SilentlyContinue | Out-Null
             Write-EmiLog "$($pkg.Name) removida de provisioned packages." Ok
@@ -163,12 +245,12 @@ function Clear-EmiAppCache {
 function Clear-EmiAppCacheByFullName {
     param([Parameter(Mandatory)][string] $PackageFullName)
 
-    # El Tag guarda el PackageFullName; extraer el Name (sin version/arquitectura)
-    $name = ($PackageFullName -split '_')[0]
-    $pkg = Get-AppxPackage -Name $name -ErrorAction SilentlyContinue
+    # El Tag guarda el PackageFullName: se busca ese paquete exacto.
+    $pkg = Find-EmiAppxPackage -Packages @(Get-AppxPackage -ErrorAction SilentlyContinue) -FullName $PackageFullName
     if (-not $pkg) {
-        Write-EmiLog "$name ya no esta instalada; se intenta limpiar su carpeta igualmente." Info
-        return (Clear-EmiAppCache -PackageFamilyName ($PackageFullName -replace '_[0-9].*$', '_')) # best effort
+        $family = Get-EmiFamilyFromFullName $PackageFullName
+        Write-EmiLog "$family ya no esta instalada; se intenta limpiar su carpeta igualmente." Info
+        return (Clear-EmiAppCache -PackageFamilyName $family)
     }
     return (Clear-EmiAppCache -PackageFamilyName $pkg.PackageFamilyName)
 }

@@ -45,8 +45,8 @@ $script:KnownBloat = @(
 
 # Aunque casen con KnownBloat, nunca se recomiendan (se pueden desactivar a
 # mano desde la lista). Actualizadores: se mira solo el NOMBRE de la entrada,
-# porque Discord, Slack o Teams arrancan con el lanzador «Update.exe
-# --processStart» de Squirrel. El resto (sincronizacion en la nube, antivirus
+# porque Discord, Slack o Teams arrancan con el lanzador "Update.exe
+# --processStart" de Squirrel. El resto (sincronizacion en la nube, antivirus
 # y perifericos) se mira en el nombre y en el comando.
 $script:NeverAutoName = @('update', 'updater', 'jusched')
 $script:NeverAuto = @(
