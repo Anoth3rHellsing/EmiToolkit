@@ -1397,6 +1397,17 @@ $win.Add_Loaded({
     $ui.TbHeaderHint.Text = $env:COMPUTERNAME + ' - mantenimiento de Windows 11'
 })
 
+# Cerrar la ventana con una tarea en marcha la corta a medias (DISM, una
+# desinstalacion, la reversion...): se pide confirmacion, con No por defecto.
+$win.Add_Closing({
+    param($sender, $e)
+    if (-not $script:Worker) { return }
+    $closeMsg = 'Hay una tarea en curso: ' + [string]$global:EmiSync.Status + "`n`n" + 'Si cierras ahora se cortara a medias y algunos cambios pueden quedar aplicados solo en parte.' + "`n`n" + 'Cerrar igualmente?'
+    $ans = [System.Windows.MessageBox]::Show($closeMsg, 'Tarea en curso', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
+    if ($ans -ne 'Yes') { $e.Cancel = $true }
+    else { Write-EmiLog 'Ventana cerrada con una tarea en curso: se ha interrumpido.' Warn }
+})
+
 $win.Add_Closed({
     try { $timer.Stop() } catch { }
     if ($script:Worker) { try { $script:Worker.Stop(); $script:Worker.Dispose() } catch { } }
