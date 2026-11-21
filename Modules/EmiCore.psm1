@@ -418,6 +418,131 @@ function Get-EmiUninstallCommand {
     return $c
 }
 
+# ---------------- Ejecutables de confianza y procesos sin elevar -----
+# Este proceso es administrador: todo lo que lanza hereda ese token. Un .exe
+# de %LOCALAPPDATA%, %APPDATA% o Descargas lo puede sustituir cualquier
+# programa del usuario, asi que nunca se ejecuta elevado.
+
+function Test-EmiTrustedLocation {
+    <#  $true si $Path esta bajo %ProgramFiles%, %ProgramFiles(x86)% o
+        %SystemRoot% (carpetas que solo escriben los administradores). #>
+    param([string] $Path)
+    if (-not $Path) { return $false }
+    try { $full = [IO.Path]::GetFullPath($Path) } catch { return $false }
+    foreach ($r in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432, $env:SystemRoot)) {
+        if (-not $r) { continue }
+        $root = [IO.Path]::GetFullPath($r).TrimEnd('\') + '\'
+        if ($full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function Test-EmiTrustedExecutable {
+    <#  Un ejecutable se puede lanzar elevado solo si: esta en una ubicacion de
+        confianza, ni el ni su carpeta los puede modificar un no administrador,
+        no es un enlace, y su firma Authenticode es valida (y del editor
+        esperado, si se indica: texto que debe aparecer en el sujeto). #>
+    param([string] $Path, [string[]] $Publisher)
+    $res = [pscustomobject]@{ Ok = $false; Reason = ''; Path = $Path; Signer = $null }
+    try {
+        if (-not $Path) { $res.Reason = 'sin ruta'; return $res }
+        $full = [IO.Path]::GetFullPath($Path); $res.Path = $full
+        $fi = Get-Item -LiteralPath $full -Force -ErrorAction Stop
+        if ($fi.PSIsContainer -or ($fi.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $res.Reason = 'no es un archivo normal'; return $res }
+        if (-not (Test-EmiTrustedLocation $full)) { $res.Reason = "esta fuera de Program Files y de Windows ($full)"; return $res }
+        $w = @(Get-EmiUntrustedWriters $full) + @(Get-EmiUntrustedWriters (Split-Path $full -Parent))
+        if ($w.Count -gt 0) { $res.Reason = "lo pueden modificar usuarios sin privilegios ($(($w | Select-Object -Unique) -join ', '))"; return $res }
+        $sig = Get-AuthenticodeSignature -LiteralPath $full -ErrorAction Stop
+        $res.Signer = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { $null }
+        if ([string]$sig.Status -ne 'Valid') { $res.Reason = "firma digital no valida ($($sig.Status))"; return $res }
+        if ($Publisher) {
+            $match = $false
+            foreach ($p in $Publisher) { if ($res.Signer -and $res.Signer.IndexOf($p, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $match = $true } }
+            if (-not $match) { $res.Reason = "firmado por otro editor ($($res.Signer))"; return $res }
+        }
+        $res.Ok = $true
+    } catch { $res.Reason = $_.Exception.Message }
+    return $res
+}
+
+function Get-EmiInteractiveUser {
+    <#  DOMINIO\usuario con la sesion de consola abierta (el que ve la ventana,
+        no necesariamente la cuenta de administrador que aprobo el UAC). #>
+    try { return [string](Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).UserName } catch { return $null }
+}
+
+function Start-EmiUnelevated {
+    <#  Lanza un programa SIN privilegios de administrador, como el usuario de
+        la sesion interactiva. Se usa una tarea programada de un solo uso
+        (LogonType Interactive, RunLevel Limited):
+          - corre con el token filtrado (integridad media) del usuario de la
+            consola, en su escritorio, y admite argumentos y codigo de salida;
+          - funciona aunque se elevara con otra cuenta de administrador;
+          - 'runas /trustlevel:0x20000' en Windows 11 da un token mixto no
+            documentado y corre como la cuenta elevada, y 'explorer.exe <exe>'
+            no pasa argumentos ni devuelve el resultado.
+        Devuelve @{ Started; ExitCode } (ExitCode solo con -Wait). #>
+    param(
+        [Parameter(Mandatory)][string] $FilePath,
+        [string] $Arguments,
+        [switch] $Wait,
+        [int] $TimeoutSec = 900
+    )
+    if (-not (Test-EmiAdmin)) {
+        $sp = @{ FilePath = $FilePath; PassThru = $true; ErrorAction = 'Stop' }
+        if ($Arguments) { $sp['ArgumentList'] = $Arguments }
+        $p = Start-Process @sp
+        if ($Wait) { [void]$p.WaitForExit($TimeoutSec * 1000); return [pscustomobject]@{ Started = $true; ExitCode = $p.ExitCode } }
+        return [pscustomobject]@{ Started = $true; ExitCode = $null }
+    }
+    $user = Get-EmiInteractiveUser
+    if (-not $user) { throw 'No hay ninguna sesion de usuario abierta en la consola: no se puede lanzar sin privilegios.' }
+    $tp   = '\EmiToolkit\'
+    $name = 'SinElevar-' + [guid]::NewGuid().ToString('N')
+    $act  = if ($Arguments) { New-ScheduledTaskAction -Execute $FilePath -Argument $Arguments } else { New-ScheduledTaskAction -Execute $FilePath }
+    $prin = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+    $set  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds ([math]::Max(60, $TimeoutSec)))
+    Register-ScheduledTask -TaskPath $tp -TaskName $name -Action $act -Principal $prin -Settings $set -Force -ErrorAction Stop | Out-Null
+    try {
+        $t0 = (Get-Date).AddSeconds(-2)
+        Start-ScheduledTask -TaskPath $tp -TaskName $name -ErrorAction Stop
+        # Esperar a que arranque de verdad antes de seguir (o de borrar la tarea)
+        $deadline = (Get-Date).AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 300
+            $i = Get-ScheduledTaskInfo -TaskPath $tp -TaskName $name -ErrorAction SilentlyContinue
+        } while ((Get-Date) -lt $deadline -and (-not $i -or $i.LastRunTime -lt $t0))
+        if (-not $i -or $i.LastRunTime -lt $t0) { throw 'La tarea para lanzar el programa sin privilegios no llego a arrancar.' }
+        if (-not $Wait) { return [pscustomobject]@{ Started = $true; ExitCode = $null } }
+        $deadline = (Get-Date).AddSeconds($TimeoutSec)
+        while ((Get-Date) -lt $deadline) {
+            $t = Get-ScheduledTask -TaskPath $tp -TaskName $name -ErrorAction SilentlyContinue
+            if (-not $t -or [string]$t.State -notin @('Running', 'Queued')) { break }
+            Start-Sleep -Milliseconds 500
+        }
+        $i = Get-ScheduledTaskInfo -TaskPath $tp -TaskName $name -ErrorAction SilentlyContinue
+        return [pscustomobject]@{ Started = $true; ExitCode = if ($i) { [int]$i.LastTaskResult } else { $null } }
+    }
+    finally {
+        # Borrar la tarea no detiene el proceso que ya arranco
+        Unregister-ScheduledTask -TaskPath $tp -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
+    }
+}
+
+function Open-EmiUrl {
+    <#  Abre una direccion en el navegador del usuario SIN elevar. Desde un
+        proceso de administrador, Start-Process 'https://...' puede abrir el
+        navegador como administrador; explorer.exe le pasa la direccion al
+        shell del usuario, que la abre con su token normal. #>
+    param([Parameter(Mandatory)][string] $Url)
+    if ($Url -notmatch '^(https://[^\s"]+|ms-settings:[A-Za-z0-9\-]*|ms-windows-store://[^\s"]+)$') { throw "Direccion no admitida: $Url" }
+    if ((Test-EmiWindows) -and (Test-EmiAdmin)) {
+        Start-Process -FilePath (Join-Path $env:SystemRoot 'explorer.exe') -ArgumentList ('"' + $Url + '"') -ErrorAction Stop
+    } else {
+        Start-Process $Url -ErrorAction Stop
+    }
+}
+
 # --------------------- Diario reversible (undo) ----------------------
 # El diario es un archivo JSON Lines (Data\undo-journal.jsonl): una entrada
 # por linea, y cada cambio solo anade una linea al final. Antes era un array

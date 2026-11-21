@@ -1310,7 +1310,9 @@ $win.Add_SourceInitialized({
 
 $win.Add_Loaded({
     Update-EmiHome
-    Update-EmiAnyDesk
+    # AnyDesk ya no se ejecuta (solo se leen su configuracion y su firma), pero
+    # comprobar la firma puede tardar sin red: despues de pintar la ventana.
+    [void]$win.Dispatcher.BeginInvoke([Action]{ Update-EmiAnyDesk }, [System.Windows.Threading.DispatcherPriority]::ApplicationIdle)
     $ui.TbHeaderHint.Text = $env:COMPUTERNAME + ' - mantenimiento de Windows 11'
 })
 
