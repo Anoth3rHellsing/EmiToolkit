@@ -21,7 +21,7 @@ function Get-EmiPrivacyItems {
         [pscustomobject]@{ Id='EdgeTel';    Name='Quitar telemetria de Microsoft Edge';      Info='Sin metricas, sin sugerencias, sin busqueda enviada';   Recommended=$true }
         [pscustomobject]@{ Id='CloudSearch';Name='Quitar contenido en la nube de la busqueda';Info='La busqueda no consulta a Microsoft';                  Recommended=$true }
         [pscustomobject]@{ Id='DeliveryOpt';Name='Delivery Optimization solo en LAN';        Info='Tu ancho de banda deja de servir a Internet';           Recommended=$true }
-        [pscustomobject]@{ Id='Location';   Name='Desactivar el sensor de ubicacion';        Info='OJO: afecta a Mapas y "Buscar mi dispositivo"';         Recommended=$false }
+        [pscustomobject]@{ Id='Location';   Name='Desactivar el sensor de ubicacion';        Info='OJO: afecta a Mapas, "Buscar mi dispositivo" y la zona horaria automatica';Recommended=$false }
         [pscustomobject]@{ Id='FirewallTel';Name='Bloquear en el firewall los procesos de telemetria';Info='Reglas de salida para DiagTrack y CompatTel';  Recommended=$false }
         [pscustomobject]@{ Id='HostsBlock'; Name='Bloquear dominios de telemetria (hosts)';  Info='AVISO: Defender lo marca como HostsFileHijack y al quitarlo restablece el hosts entero'; Recommended=$false }
         # --- Telemetria moderna (Copilot, Recall, AI, Edge, WebView2, winget) ---
