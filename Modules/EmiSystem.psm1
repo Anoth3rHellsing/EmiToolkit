@@ -66,7 +66,10 @@ function Set-EmiZenDefault {
 
     Write-EmiLog "Zen encontrado en $($zen.Path). Estableciendo como predeterminado..." Step
     try {
-        Start-Process -FilePath $zen.Path -ArgumentList '-setDefaultBrowser' -WindowStyle Hidden -ErrorAction Stop
+        # Sin privilegios y como el usuario: el navegador predeterminado es un
+        # ajuste suyo (HKCU), y zen.exe suele estar en %LOCALAPPDATA%, donde
+        # cualquier programa del usuario lo puede sustituir. Nunca elevado.
+        [void](Start-EmiUnelevated -FilePath $zen.Path -Arguments '-setDefaultBrowser')
         Start-Sleep -Seconds 3
     }
     catch { Write-EmiLog "No se pudo invocar Zen: $($_.Exception.Message)" Warn }
@@ -78,12 +81,12 @@ function Set-EmiZenDefault {
     }
 
     Write-EmiLog 'Windows pide confirmacion manual. Abriendo Configuracion > Aplicaciones predeterminadas...' Warn
-    try { Start-Process 'ms-settings:defaultapps' } catch { }
+    try { Open-EmiUrl 'ms-settings:defaultapps' } catch { }
     return 'NeedsUser'
 }
 
 function Open-EmiDefaultAppsSettings {
-    try { Start-Process 'ms-settings:defaultapps'; return $true } catch { return $false }
+    try { Open-EmiUrl 'ms-settings:defaultapps'; return $true } catch { return $false }
 }
 
 # ---------------------------- INICIO RAPIDO --------------------------
