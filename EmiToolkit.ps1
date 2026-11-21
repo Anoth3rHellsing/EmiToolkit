@@ -347,7 +347,7 @@ function Update-EmiHome {
     $ui.TbStatFast.Text = $f.StatusText
 
     $n = Get-EmiEsetRuleCount
-    $ui.TbStatEset.Text = if ($n -gt 0) { $n + ' reglas KB332 activas' } else { 'Sin reglas aplicadas' }
+    $ui.TbStatEset.Text = if ($n -gt 0) { "$n reglas KB332 activas" } else { 'Sin reglas aplicadas' }
 
     $z = Get-EmiZenInfo
     $ui.TbStatZen.Text = if (-not $z.Installed) { 'Zen no instalado (no se toca)' }
