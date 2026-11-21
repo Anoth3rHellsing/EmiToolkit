@@ -26,7 +26,12 @@ function Get-EmiPrivacyItems {
         [pscustomobject]@{ Id='FirewallTel';Name='Bloquear en el firewall los procesos de telemetria';Info='Reglas de salida para DiagTrack y CompatTel';  Recommended=$false }
         [pscustomobject]@{ Id='HostsBlock'; Name='Bloquear dominios de telemetria (hosts)';  Info='AVISO: Defender lo marca como HostsFileHijack y al quitarlo restablece el hosts entero'; Recommended=$false }
         # --- Telemetria moderna (Copilot, Recall, AI, Edge, WebView2, winget) ---
-        [pscustomobject]@{ Id='DisableCopilot';    Name='Desactivar Windows Copilot';              Info='GPO TurnOffWindowsCopilot; la app queda instalada pero inactiva'; Recommended=$true }
+        # TurnOffWindowsCopilot esta obsoleta y "no es para la nueva experiencia de
+        # Copilot" (Policy CSP WindowsAI): desde 24H2 Copilot es una app y no le
+        # afecta. La directiva nueva, RemoveMicrosoftCopilotApp (25H2 + KB5083769),
+        # no esta verificada aqui; lo que funciona en todas las ediciones es
+        # desinstalar la app (Debloat > Copilot).
+        [pscustomobject]@{ Id='DisableCopilot';    Name='Desactivar Windows Copilot (directiva antigua)'; Info='Solo Windows 11 23H2 y anteriores; desde 24H2 quita la app Copilot en Debloat'; Recommended=$false; MaxBuild=22631 }
         # Policy CSP WindowsAI (AllowRecallEnablement, DisableAIDataAnalysis):
         # Pro, Enterprise y Education; en Home, Recall se quita como caracteristica
         [pscustomobject]@{ Id='DisableRecall';     Name='Desactivar Recall y Snapshots';           Info='Impide captura e indexacion local por IA; sin efecto en PC sin NPU'; Recommended=$true; Editions=@('Pro','Enterprise','Education') }

@@ -13,14 +13,22 @@ function Get-EmiTweaks {
     <#  Catalogo de optimizaciones. Recommended = se aplica en modo basico.
         Editions / MaxBuild: donde surte efecto (EmiCore, Get-EmiItemSkipReason);
         fuera de ahi se avisa en el texto y no se recomienda. #>
-    Update-EmiCatalogForEdition @(
+    $list = Update-EmiCatalogForEdition @(
         [pscustomobject]@{ Id='Widgets';    Name='Quitar Widgets de la barra de tareas';       Info='Libera RAM del proceso Widgets.exe';                 Recommended=$true }
-        [pscustomobject]@{ Id='Copilot';    Name='Quitar el boton de Copilot';                 Info='Desactiva Copilot en la barra de tareas';            Recommended=$true }
-        [pscustomobject]@{ Id='Chat';       Name='Quitar el icono de Chat / Teams';            Info='Quita el chat integrado de Windows';                 Recommended=$true }
+        # El boton de Copilot de la barra solo existe hasta 23H2 (22631); desde 24H2
+        # Copilot es una app y se quita en Debloat (Policy CSP WindowsAI: la directiva
+        # TurnOffWindowsCopilot esta obsoleta y no afecta a la app nueva).
+        [pscustomobject]@{ Id='Copilot';    Name='Quitar el boton de Copilot';                 Info='Solo Windows 11 23H2 y anteriores; desde 24H2 Copilot es una app (quitala en Debloat)'; Recommended=$true; MaxBuild=22631 }
+        # El icono de Chat (Teams personal) desaparecio en 23H2
+        [pscustomobject]@{ Id='Chat';       Name='Quitar el icono de Chat / Teams';            Info='Solo Windows 11 22H2 y anteriores: en 23H2 ya no existe'; Recommended=$false; MaxBuild=22621 }
         [pscustomobject]@{ Id='WebSearch';  Name='Quitar la busqueda web de Bing del Inicio';  Info='El menu Inicio pasa a buscar solo en el equipo';     Recommended=$true }
         [pscustomobject]@{ Id='Suggest';    Name='Quitar sugerencias, anuncios y consejos';    Info='Apps sugeridas, contenido destacado, tips';          Recommended=$true }
         [pscustomobject]@{ Id='StartRec';   Name='Vaciar la seccion Recomendado del Inicio';   Info='Sin archivos ni apps recientes en el menu Inicio';   Recommended=$true }
-        [pscustomobject]@{ Id='GameDVR';    Name='Desactivar Xbox Game Bar y grabacion';       Info='Quita la captura en segundo plano (mucha RAM)';      Recommended=$true }
+        [pscustomobject]@{ Id='GameDVR';    Name='Desactivar Xbox Game Bar y grabacion';       Info='Quita la Game Bar y la grabacion de partidas (Win+G deja de funcionar)'; Recommended=$true }
+        # Antes iba dentro de GameDVR. Desactiva en todo el sistema las optimizaciones
+        # de pantalla completa, base del modelo flip y de "Optimizaciones para juegos
+        # en ventana" (Microsoft Support 3f006843); ningun beneficio medido.
+        [pscustomobject]@{ Id='DisableFSO'; Name='Desactivar optimizaciones de pantalla completa'; Info='OJO: casi nunca ayuda y puede empeorar latencia, VRR y Auto HDR; solo para un juego concreto que falle'; Recommended=$false }
         [pscustomobject]@{ Id='BgApps';     Name='Desactivar apps en segundo plano';           Info='OJO: sin avisos de Enlace Movil, alarmas ni correo de la Store; Windows 11 no tiene interruptor, se revierte desde Revertir'; Recommended=$false }
         [pscustomobject]@{ Id='Context';    Name='Menu contextual clasico (Win10)';            Info='Sin el paso extra de "Mostrar mas opciones"';        Recommended=$true }
         [pscustomobject]@{ Id='Explorer';   Name='Explorador: abrir en Este equipo';           Info='Tambien muestra extensiones de archivo';             Recommended=$true }
@@ -31,9 +39,16 @@ function Get-EmiTweaks {
         [pscustomobject]@{ Id='SvcPca';     Name='Asistente de compatibilidad en manual';      Info='OJO: deja de avisar y corregir programas antiguos que fallan'; Recommended=$false }
         [pscustomobject]@{ Id='SvcDoSvc';   Name='Delivery Optimization en manual';            Info='OJO: Store y Windows Update pueden descargar peor; para cortar el P2P basta "Delivery Optimization solo en LAN" de Privacidad'; Recommended=$false }
         [pscustomobject]@{ Id='Tasks';      Name='Desactivar tareas programadas de rastreo';   Info='CEIP, Compatibility Appraiser, DiskDiagnostic';      Recommended=$true }
-        [pscustomobject]@{ Id='NetworkOpt'; Name='Optimizar la pila de red';                   Info='Autotuning normal y sin limitacion de ancho de banda'; Recommended=$true }
-        [pscustomobject]@{ Id='PowerPlan';  Name='Plan de energia Alto rendimiento';           Info='Recomendado en equipos de escritorio';               Recommended=$false }
-        [pscustomobject]@{ Id='SysMain';    Name='Desactivar SysMain (Superfetch)';            Info='Solo en equipos con SSD; en HDD no conviene';        Recommended=$false }
+        # Placebo probable: autotuning normal ya es el de fabrica y los dos valores de
+        # MMCSS solo afectan mientras suena audio o video (Microsoft, "Multimedia Class
+        # Scheduler Service"); NetworkThrottlingIndex no tiene beneficio medido.
+        [pscustomobject]@{ Id='NetworkOpt'; Name='Ajustar la pila de red (MMCSS)';             Info='Casi nunca se nota: deja el autotuning en normal (el de fabrica) y cambia la reserva de MMCSS para audio y video'; Recommended=$false }
+        # En portatiles gasta bateria y en CPU modernas Equilibrado con "Mejor
+        # rendimiento" rinde igual; con Modern Standby ni existe (se oculta abajo).
+        [pscustomobject]@{ Id='PowerPlan';  Name='Plan de energia Alto rendimiento';           Info='Solo escritorio: gasta mas; en CPU modernas Equilibrado con Mejor rendimiento rinde igual'; Recommended=$false }
+        # Windows ya adapta SysMain y Prefetch a los SSD; en pruebas no mejora nada
+        # (Windows Latest, 26-10-2026, dos PC) y en HDD lo empeora.
+        [pscustomobject]@{ Id='SysMain';    Name='Desactivar SysMain (Superfetch)';            Info='OJO: rara vez ayuda; Windows ya lo adapta a los SSD y en HDD las apps abren mas lentas'; Recommended=$false }
         [pscustomobject]@{ Id='WSearch';    Name='Desactivar la indexacion de Windows Search'; Info='Menos disco, pero las busquedas van mas lentas';     Recommended=$false }
         [pscustomobject]@{ Id='OneDrive';   Name='Quitar OneDrive del arranque';               Info='No lo desinstala, solo deja de iniciarse solo';      Recommended=$false }
         [pscustomobject]@{ Id='Hibernate';  Name='Desactivar hibernacion';                     Info='Libera hiberfil.sys (varios GB) del disco C:';       Recommended=$false }
@@ -61,6 +76,9 @@ function Get-EmiTweaks {
         [pscustomobject]@{ Id='DevCliTelemetry';    Name='Desactivar telemetria de CLI dev';       Info='Azure CLI, .NET, Bicep, PowerShell, NuGet; requiere nuevo shell';Recommended=$true }
         [pscustomobject]@{ Id='DisableModernStandbyNet';Name='Red desactivada en Modern Standby';  Info='AVISO: impide notificaciones push en suspension';         Recommended=$false }
     )
+    # Con Modern Standby solo hay plan Equilibrado: Alto rendimiento no se ofrece
+    if (Test-EmiModernStandby) { $list = @($list | Where-Object { $_.Id -ne 'PowerPlan' }) }
+    return $list
 }
 
 # Servicios de la opcion "Services" (recomendada, modo basico). Solo lo que
@@ -188,6 +206,8 @@ function Invoke-EmiTweak {
         }
 
         'Copilot' {
+            # Hasta 23H2 (MaxBuild en el catalogo). TurnOffWindowsCopilot tambien
+            # ocultaba el boton en 23H2; desde 24H2 es una directiva obsoleta.
             if (Set-EmiRegistry $HKCU_ADV 'ShowCopilotButton' 0 DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 1 DWord $M) { $n++ }
         }
@@ -198,12 +218,12 @@ function Invoke-EmiTweak {
         }
 
         'WebSearch' {
+            # CortanaConsent y AllowCortana ya no se escriben: Cortana se retiro en
+            # 2023 y no hacian nada (auditoria de sistema, "Directivas que no aplican").
             if (Set-EmiRegistry $HKCU_SEARCH 'BingSearchEnabled' 0 DWord $M) { $n++ }
-            if (Set-EmiRegistry $HKCU_SEARCH 'CortanaConsent' 0 DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'DisableSearchBoxSuggestions' 1 DWord $M) { $n++ }
             if (Set-EmiRegistry $HKLM_POL_WS 'DisableWebSearch' 1 DWord $M) { $n++ }
             if (Set-EmiRegistry $HKLM_POL_WS 'ConnectedSearchUseWeb' 0 DWord $M) { $n++ }
-            if (Set-EmiRegistry $HKLM_POL_WS 'AllowCortana' 0 DWord $M) { $n++ }
         }
 
         'Suggest' {
@@ -241,10 +261,14 @@ function Invoke-EmiTweak {
 
         'GameDVR' {
             if (Set-EmiRegistry 'HKCU:\System\GameConfigStore' 'GameDVR_Enabled' 0 DWord $M) { $n++ }
-            if (Set-EmiRegistry 'HKCU:\System\GameConfigStore' 'GameDVR_FSEBehaviorMode' 2 DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR' 'AllowGameDVR' 0 DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKCU:\SOFTWARE\Microsoft\GameBar' 'UseNexusForGameBarEnabled' 0 DWord $M) { $n++ }
             if (Set-EmiRegistry 'HKCU:\SOFTWARE\Microsoft\GameBar' 'ShowStartupPanel' 0 DWord $M) { $n++ }
+        }
+
+        'DisableFSO' {
+            Write-EmiLog 'Optimizaciones de pantalla completa desactivadas en todo el sistema: si un juego va peor, Revertir lo deshace.' Warn
+            if (Set-EmiRegistry 'HKCU:\System\GameConfigStore' 'GameDVR_FSEBehaviorMode' 2 DWord $M) { $n++ }
         }
 
         'BgApps' {
@@ -341,7 +365,10 @@ function Invoke-EmiTweak {
             $n++
         }
 
-        'SysMain'  { if (Set-EmiService -Name 'SysMain' -StartupType Disabled -Stop -Module $M) { $n++ } }
+        'SysMain'  {
+            Write-EmiLog 'SysMain: rara vez acelera nada (Windows ya lo adapta a los SSD); si notas que las apps tardan mas en abrir, Revertir lo deshace.' Warn
+            if (Set-EmiService -Name 'SysMain' -StartupType Disabled -Stop -Module $M) { $n++ }
+        }
         'WSearch'  { if (Set-EmiService -Name 'WSearch' -StartupType Disabled -Stop -Module $M) { $n++ } }
 
         'OneDrive' {

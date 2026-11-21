@@ -22,6 +22,8 @@ $script:BloatApps = @(
     @{ Id='RemoveTeamsConsumer'; Pkg='MSTeams_8wekyb3d8bbwe';                             Name='Microsoft Teams (nuevo)'; Recommended=$false; Info='AVISO: es el Teams actual, el mismo que se usa para trabajo y clase' }
     @{ Id='RemoveOutlookNew';    Pkg='Microsoft.OutlookForWindows_8wekyb3d8bbwe';         Name='Nuevo Outlook';        Recommended=$false; Info='Outlook PWA reemplazo de Mail' }
     @{ Id='RemovePhoneLink';     Pkg='Microsoft.YourPhone_8wekyb3d8bbwe';                 Name='Enlace a telefono';    Recommended=$true;  Info='Sincronizacion movil-PC' }
+    # Desde 24H2 Copilot es esta app; la directiva TurnOffWindowsCopilot ya no la alcanza
+    @{ Id='RemoveCopilot';       Pkg='Microsoft.Copilot_8wekyb3d8bbwe';                   Name='Copilot (app)';        Recommended=$false; Info='Asistente de IA; se puede volver a instalar desde Microsoft Store' }
     @{ Id='RemoveCortana';       Pkg='Microsoft.549981C3F5F10_8wekyb3d8bbwe';             Name='Cortana';              Recommended=$true;  Info='Asistente deprecated por MS' }
     @{ Id='RemoveGetHelp';       Pkg='Microsoft.GetHelp_8wekyb3d8bbwe';                   Name='Obtener ayuda';        Recommended=$true;  Info='App de soporte MS' }
     @{ Id='RemoveTips';          Pkg='Microsoft.Getstarted_8wekyb3d8bbwe';                Name='Consejos / Inicio';    Recommended=$true;  Info='Tutorial de bienvenida' }
