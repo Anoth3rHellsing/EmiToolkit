@@ -344,6 +344,7 @@ $script:Advanced  = $false
 $script:Worker    = $null
 $script:WorkHandle = $null
 $script:OnDone    = $null
+$script:TaskRs    = $null
 $ui.IcLog.ItemsSource = $script:LogView
 
 $busyGreen = [Windows.Media.BrushConverter]::new().ConvertFrom('#FF4CA22B')
@@ -451,39 +452,33 @@ function Start-EmiWork {
     $global:EmiSync.Result   = $null
 
     try {
-        $rs = [runspacefactory]::CreateRunspace()
-        $rs.ApartmentState = 'STA'
-        $rs.ThreadOptions  = 'ReuseThread'
-        $rs.Open()
-        $rs.SessionStateProxy.SetVariable('EmiSync', $global:EmiSync)
-        $rs.SessionStateProxy.SetVariable('P', $Parameters)
-        $rs.SessionStateProxy.SetVariable('EmiRootPath', $Root)
-        $rs.SessionStateProxy.SetVariable('EmiModuleCode', $script:ModuleCode)
-        $rs.SessionStateProxy.SetVariable('EmiDataPath', (Get-EmiDataDir))
-        $rs.SessionStateProxy.SetVariable('EmiModuleNames', [string[]]$ModuleNames)
+        # Un runspace para todas las tareas (una cada vez): los 13 modulos se
+        # importan la primera vez y no en cada tarea. Si se rompe, se crea otro.
+        if (-not $script:TaskRs -or $script:TaskRs.RunspaceStateInfo.State -ne 'Opened') {
+            try { if ($script:TaskRs) { $script:TaskRs.Dispose() } } catch { }
+            $script:TaskRs = New-EmiWorkerRunspace
+        }
+        $script:TaskRs.SessionStateProxy.SetVariable('P', $Parameters)
 
         $ps = [powershell]::Create()
-        $ps.Runspace = $rs
-        [void]$ps.AddScript($script:Preamble + "`n" + $Work.ToString())
+        $ps.Runspace = $script:TaskRs
+        # Ambito local: las variables de una tarea no se quedan para la siguiente
+        [void]$ps.AddScript($script:PreambleOnce + "`n" + $Work.ToString(), $true)
 
         $script:Worker     = $ps
         $script:WorkHandle = $ps.BeginInvoke()
         $script:OnDone     = $OnDone
     } catch {
-        # Si el arranque del runspace falla, restaurar la UI o quedaria "ocupada" para siempre
+        # Si el arranque de la tarea falla, restaurar la UI o quedaria "ocupada" para siempre
         Write-EmiLog ('No se pudo iniciar la tarea: ' + $_.Exception.Message) Error
         $script:Worker = $null; $script:WorkHandle = $null; $script:OnDone = $null
-        try { if ($rs) { $rs.Dispose() } } catch { }
         try { if ($ps) { $ps.Dispose() } } catch { }
+        try { if ($script:TaskRs) { $script:TaskRs.Dispose() } } catch { }
+        $script:TaskRs = $null
         Set-EmiBusy $false 'Listo'
     }
 }
 
-# Avisos y errores de la ultima tarea: el mensaje final los cuenta en vez de
-# decir siempre que todo fue bien (en modo basico el registro no se ve).
-$script:WorkLogStart = 0
-$script:LastWarn = 0
-$script:LastErr  = 0
 function Update-EmiTaskIssues {
     $script:LastWarn = 0; $script:LastErr = 0
     $log = $global:EmiSync.Log
@@ -558,7 +553,7 @@ $timer.Add_Tick({
                 if ($errs -and $errs.Count -gt 0) { foreach ($e in $errs) { Write-EmiLog ([string]$e) Warn } }
             } finally {
                 try { Update-EmiTaskIssues } catch { }
-                try { $script:Worker.Runspace.Close(); $script:Worker.Dispose() } catch { }
+                try { $script:Worker.Dispose() } catch { }   # el runspace se reutiliza
                 $script:Worker = $null; $script:WorkHandle = $null
                 Set-EmiBusy $false 'Listo'
             }
@@ -1805,6 +1800,7 @@ $win.Add_Closed({
     try { $timer.Stop() } catch { }
     Clear-EmiSecretClipboard   # una contrasena copiada no sobrevive a la app
     if ($script:Worker) { try { $script:Worker.Stop(); $script:Worker.Dispose() } catch { } }
+    try { if ($script:TaskRs) { $script:TaskRs.Dispose() } } catch { }
     try { if ($script:StatusPs) { $script:StatusPs.Stop(); $script:StatusPs.Dispose() } } catch { }
     try { if ($script:StatusRs) { $script:StatusRs.Dispose() } } catch { }
     Write-EmiLog 'Another''s Toolbox cerrado.' Info
