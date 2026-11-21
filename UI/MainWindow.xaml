@@ -1509,8 +1509,19 @@
                             <TextBox x:Name="TxtVaultEmail" Grid.Row="1" Grid.Column="1" Style="{StaticResource Field}"
                                      Margin="0,0,0,8" Tag="Correo electronico"/>
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Contrasena:" Foreground="{StaticResource Deep}" FontSize="12" Margin="0,0,8,2"/>
-                            <TextBox x:Name="TxtVaultPassword" Grid.Row="3" Grid.Column="0" Style="{StaticResource Field}"
-                                     Margin="0,0,8,8" FontFamily="Consolas" Tag="Contrasena"/>
+                            <!-- Contraseña oculta por defecto; la casilla la muestra en claro -->
+                            <Grid Grid.Row="3" Grid.Column="0" Margin="0,0,8,8">
+                              <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                              </Grid.ColumnDefinitions>
+                              <PasswordBox x:Name="PwVaultPassword" Grid.Column="0" Height="34" Padding="8,0" VerticalContentAlignment="Center"
+                                           FontFamily="Consolas" AutomationProperties.Name="Contraseña de la entrada"/>
+                              <TextBox x:Name="TxtVaultPassword" Grid.Column="0" Style="{StaticResource Field}" Visibility="Collapsed"
+                                       FontFamily="Consolas" AutomationProperties.Name="Contraseña de la entrada (visible)"/>
+                              <CheckBox x:Name="ChkVaultShow" Grid.Column="1" Style="{StaticResource Check}" Content="_Mostrar"
+                                        Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource Deep}"/>
+                            </Grid>
                             <Button x:Name="BtnVaultGenForEntry" Grid.Row="3" Grid.Column="1" Style="{StaticResource Ghost}"
                                     Content="Generar contrasena" Margin="0,0,0,8" VerticalAlignment="Bottom"/>
                             <Button x:Name="BtnVaultAdd" Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
@@ -1895,7 +1906,28 @@
               <TextBlock x:Name="TbUndoCount" VerticalAlignment="Center" Margin="16,0,0,0" FontSize="13"
                          Foreground="{StaticResource Ink}" Text=""/>
             </WrapPanel>
-            <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,14,0,0" Padding="4">
+            <Grid Grid.Row="2" Margin="0,14,0,0">
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*" MinHeight="120"/>
+                <RowDefinition Height="*" MinHeight="100"/>
+              </Grid.RowDefinitions>
+              <WrapPanel Grid.Row="0" Margin="0,0,0,8">
+                <TextBlock Text="Cambios que se pueden deshacer" VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Deep}"/>
+                <Button x:Name="BtnUndoOne" Style="{StaticResource GlossAmberBtn}" Content="_Deshacer el seleccionado" Margin="16,0,0,0"/>
+                <Button x:Name="BtnJournalRefresh" Style="{StaticResource Ghost}" Content="Actualizar lista" Margin="8,0,0,0"/>
+              </WrapPanel>
+              <ListView Grid.Row="1" x:Name="LvJournal" Style="{StaticResource Lst}" SelectionMode="Single">
+                <ListView.View>
+                  <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
+                    <GridViewColumn Header="Cuándo"     Width="130" DisplayMemberBinding="{Binding When}"/>
+                    <GridViewColumn Header="Tipo"       Width="120" DisplayMemberBinding="{Binding Kind}"/>
+                    <GridViewColumn Header="Qué"        Width="420" DisplayMemberBinding="{Binding What}"/>
+                    <GridViewColumn Header="Reversible" Width="90"  DisplayMemberBinding="{Binding Reversible}"/>
+                  </GridView>
+                </ListView.View>
+              </ListView>
+            <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,10,0,0" Padding="4">
               <ScrollViewer x:Name="SvLog" VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="IcLog" Margin="10">
                   <ItemsControl.ItemTemplate>
@@ -1923,6 +1955,7 @@
                 </ItemsControl>
               </ScrollViewer>
             </Border>
+            </Grid>
           </Grid>
 
         </Grid>
@@ -1935,12 +1968,15 @@
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="220"/>
           </Grid.ColumnDefinitions>
           <Ellipse x:Name="EllBusy" Grid.Column="0" Width="9" Height="9" VerticalAlignment="Center" Fill="#FF4CA22B"/>
           <TextBlock x:Name="TbStatus" Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center"
                      FontSize="11.5" Foreground="{StaticResource Deep}" Text="Listo" TextTrimming="CharacterEllipsis"/>
-          <ProgressBar x:Name="PbMain" Grid.Column="2" Style="{StaticResource Bar}" VerticalAlignment="Center"
+          <Button x:Name="BtnCancel" Grid.Column="2" Style="{StaticResource Ghost}" Height="26" Margin="8,0,10,0"
+                  Content="_Cancelar" Visibility="Collapsed" ToolTip="Para la tarea al terminar el paso que está haciendo"/>
+          <ProgressBar x:Name="PbMain" Grid.Column="3" Style="{StaticResource Bar}" VerticalAlignment="Center"
                        Minimum="0" Maximum="100" Value="0"/>
         </Grid>
       </Grid>

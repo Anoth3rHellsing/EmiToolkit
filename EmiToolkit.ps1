@@ -354,7 +354,8 @@ foreach ($n in @(
     'BtnVortexScan','BtnVortexRemove','BtnVortexFullClean','BtnVortexSkyrimClean','LvVortex',
     'TbZenState','BtnZenSet','BtnZenSettings','TbFastState','ChkHiber','BtnFastDisable','BtnFastEnable','TbSysInfo',
     'BtnUndoAll','BtnOpenLog','TbUndoCount','IcLog','SvLog',
-    'TbStatus','PbMain','EllBusy','SwContrast','BgSky','BgGloss','BgBubbles'
+    'TbStatus','PbMain','EllBusy','SwContrast','BgSky','BgGloss','BgBubbles',
+    'BtnCancel','BtnUndoOne','BtnJournalRefresh','LvJournal','PwVaultPassword','ChkVaultShow'
 )) { $ui[$n] = C $n }
 
 # Pincel original del fondo, para restaurarlo al desactivar contraste alto
@@ -386,6 +387,13 @@ foreach ($m in $EmiModuleNames) {
     New-Module -Name $m -ScriptBlock ([scriptblock]::Create($EmiModuleCode[$m])) | Import-Module -Force -DisableNameChecking -Global
 }
 Initialize-EmiCore -RootPath $EmiRootPath -DataPath $EmiDataPath
+# Cancelar es cooperativo: la tarea lo mira entre pasos (nunca a mitad de
+# escribir un cambio y su entrada del diario)
+function global:Test-EmiCancel {
+    if ($EmiSync.Cancel) { Write-EmiLog 'Tarea cancelada: se paró al terminar el paso en curso.' Warn; return $true }
+    return $false
+}
+function global:Set-EmiStep { param([int] $Index, [int] $Count) $EmiSync.StepIndex = $Index; $EmiSync.StepCount = $Count; $EmiSync.Progress = -1 }
 '@
 
 function New-EmiWorkerRunspace {
@@ -453,7 +461,24 @@ function Set-EmiBusy {
         }
     }
     if ($ui.BtnUndoAll) { $ui.BtnUndoAll.IsEnabled = -not $Busy }
-    if (-not $Busy) { $ui.PbMain.Value = 0 }
+    if ($ui.BtnUndoOne) { $ui.BtnUndoOne.IsEnabled = -not $Busy; $ui.BtnJournalRefresh.IsEnabled = -not $Busy }
+    if (-not $Busy) {
+        $ui.PbMain.IsIndeterminate = $false; $ui.PbMain.Value = 0
+        if ($ui.BtnCancel) { $ui.BtnCancel.Visibility = 'Collapsed' }
+    }
+}
+
+function Get-EmiOverallProgress {
+    <#  Porcentaje de la barra: -1 si no se sabe (barra indeterminada). Con
+        pasos (Set-EmiStep), el avance del paso cuenta dentro del total, asi la
+        barra no vuelve a 0 en cada paso del mantenimiento. #>
+    param([double] $Progress, [int] $StepIndex, [int] $StepCount)
+    if ($StepCount -gt 0 -and $StepIndex -gt 0) {
+        $inStep = if ($Progress -ge 0) { [Math]::Min(100, $Progress) / 100 } else { 0 }
+        return [Math]::Round(100 * (($StepIndex - 1) + $inStep) / $StepCount, 1)
+    }
+    if ($Progress -lt 0) { return -1 }
+    return [Math]::Min(100, $Progress)
 }
 
 function Start-EmiWork {
@@ -462,7 +487,8 @@ function Start-EmiWork {
         [Parameter(Mandatory)][scriptblock] $Work,
         [hashtable] $Parameters = @{},
         [scriptblock] $OnDone,
-        [string] $Label = 'Trabajando...'
+        [string] $Label = 'Trabajando...',
+        [switch] $Cancelable
     )
 
     if ($script:Worker) { Write-EmiLog 'Ya hay una tarea en curso.' Warn; return }
@@ -470,9 +496,14 @@ function Start-EmiWork {
     Set-EmiBusy $true $Label
     # Desde aqui se cuentan los avisos y errores de esta tarea (Get-EmiTaskIssues)
     $script:WorkLogStart = $global:EmiSync.Log.Count
-    $global:EmiSync.Progress = 0
+    $global:EmiSync.Progress  = -1   # sin porcentaje: barra indeterminada
+    $global:EmiSync.StepIndex = 0
+    $global:EmiSync.StepCount = 0
+    $global:EmiSync.Cancel    = $false
     $global:EmiSync.Status   = $Label
     $global:EmiSync.Result   = $null
+    $ui.BtnCancel.Visibility = if ($Cancelable) { 'Visible' } else { 'Collapsed' }
+    $ui.BtnCancel.IsEnabled  = $true
 
     try {
         # Un runspace para todas las tareas (una cada vez): los 13 modulos se
@@ -566,7 +597,9 @@ $timer.Add_Tick({
     # Estado y progreso
     if ($script:Worker) {
         $ui.TbStatus.Text = [string]$global:EmiSync.Status
-        $ui.PbMain.Value  = [double]$global:EmiSync.Progress
+        $pct = Get-EmiOverallProgress ([double]$global:EmiSync.Progress) ([int]$global:EmiSync.StepIndex) ([int]$global:EmiSync.StepCount)
+        if ($pct -lt 0) { $ui.PbMain.IsIndeterminate = $true }
+        else { $ui.PbMain.IsIndeterminate = $false; $ui.PbMain.Value = $pct }
 
         if ($script:WorkHandle.IsCompleted) {
             try {
@@ -969,21 +1002,29 @@ $ui.BtnOneClick.Add_Click({
 
 function Start-EmiMaintenance {
     param([hashtable] $Plan)
-    Start-EmiWork -Label 'Mantenimiento completo...' -Parameters $Plan -Work {
+    Start-EmiWork -Label 'Mantenimiento completo...' -Parameters $Plan -Cancelable -Work {
 
         $freed = 0
         $rp = $null
         if ($P.Restore) { $rp = [bool](@(New-EmiRestorePoint)[-1]) }
 
+        Set-EmiStep 1 7
+        if (Test-EmiCancel) { return @{ Freed = $freed; Restore = $rp; Cancelled = $true } }
         Write-EmiLog '=== 1/7  Limpieza de disco ===' Step
         $freed = Invoke-EmiCleanup -Ids $P.CleanIds
 
+        Set-EmiStep 2 7
+        if (Test-EmiCancel) { return @{ Freed = $freed; Restore = $rp; Cancelled = $true } }
         Write-EmiLog '=== 2/7  Optimizacion de Windows 11 ===' Step
         [void](Invoke-EmiTweakSet -Ids $P.TweakIds)
 
+        Set-EmiStep 3 7
+        if (Test-EmiCancel) { return @{ Freed = $freed; Restore = $rp; Cancelled = $true } }
         Write-EmiLog '=== 3/7  Telemetria ===' Step
         [void](Invoke-EmiPrivacySet -Ids $P.PrivIds)
 
+        Set-EmiStep 4 7
+        if (Test-EmiCancel) { return @{ Freed = $freed; Restore = $rp; Cancelled = $true } }
         Write-EmiLog '=== 4/7  Programas de arranque ===' Step
         # Solo las entradas que se ensenaron en la confirmacion
         $tags  = @($P.Startup | ForEach-Object { $_.Tag })
@@ -991,15 +1032,21 @@ function Start-EmiMaintenance {
         if ($items.Count -gt 0) { [void](Invoke-EmiStartupCleanup -Items $items) }
         else { Write-EmiLog 'Nada que quitar del arranque.' Ok }
 
+        Set-EmiStep 5 7
+        if (Test-EmiCancel) { return @{ Freed = $freed; Restore = $rp; Cancelled = $true } }
         Write-EmiLog '=== 5/7  Inicio rapido ===' Step
         [void](Disable-EmiFastStartup)
 
+        Set-EmiStep 6 7
+        if (Test-EmiCancel) { return @{ Freed = $freed; Restore = $rp; Cancelled = $true } }
         if ($P.Eset) {
             Write-EmiLog '=== 6/7  Firewall de ESET (KB332) ===' Step
             if (@($P.EsetGroups).Count -gt 0) { [void](Invoke-EmiEsetFirewall -Groups $P.EsetGroups -ResolveHostnames) }
             else { [void](Invoke-EmiEsetFirewall -ResolveHostnames) }
         } else { Write-EmiLog '=== 6/7  Firewall de ESET omitido ===' Info }
 
+        Set-EmiStep 7 7
+        if (Test-EmiCancel) { return @{ Freed = $freed; Restore = $rp; Cancelled = $true } }
         if ($P.Zen) {
             Write-EmiLog '=== 7/7  Navegador predeterminado ===' Step
             [void](Set-EmiZenDefault)
@@ -1016,6 +1063,7 @@ function Start-EmiMaintenance {
         $freed = 0; if ($res -and $res.Freed) { $freed = $res.Freed }
         $extra = 'Espacio liberado: ' + (Format-EmiSize $freed) + "`n`n" + 'Conviene reiniciar el equipo para que todo se aplique.'
         $rpFailed = ($res -and $res.Restore -eq $false)
+        if ($res -and $res.Cancelled) { $extra = 'Cancelado a mitad: lo hecho hasta ese paso queda aplicado (lo registrado se puede deshacer en Historial y deshacer).' + "`n`n" + $extra }
         if ($rpFailed) { $extra = 'ATENCION: no se pudo crear el punto de restauracion, asi que no hay uno de antes de estos cambios. Lo registrado se puede revertir desde Registro y deshacer.' + "`n`n" + $extra }
         Show-EmiTaskDone 'Mantenimiento terminado' -Extra $extra -Warn:$rpFailed
     }
@@ -1032,10 +1080,17 @@ $ui.BtnDiskScan.Add_Click({
         param($r)
         $items = @($r)[-1]
         $ui.LvClean.ItemsSource = $items
-        $tot = 0; foreach ($i in $items) { if ($i.Selected) { $tot += $i.Size } }
-        $ui.TbDiskTotal.Text = "Seleccionado: $(Format-EmiSize $tot)"
+        Update-EmiDiskTotal
     }
 })
+
+function Update-EmiDiskTotal {
+    $tot = 0; foreach ($i in @($ui.LvClean.ItemsSource)) { if ($i -and $i.Selected) { $tot += $i.Size } }
+    $ui.TbDiskTotal.Text = 'Seleccionado: ' + (Format-EmiSize $tot)
+}
+# Al marcar o desmarcar una casilla de la lista se recalcula el total
+$ui.LvClean.AddHandler([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent,
+    [System.Windows.RoutedEventHandler]{ param($s, $e) if ($e.OriginalSource -is [System.Windows.Controls.CheckBox]) { Update-EmiDiskTotal } })
 
 $ui.BtnDiskClean.Add_Click({
     $sel = Get-EmiChecked $ui.LvClean
@@ -1268,13 +1323,28 @@ $ui.BtnGenCopy.Add_Click({
 $ui.BtnVaultGenForEntry.Add_Click({
     $special = [bool]$ui.ChkGenSpecial.IsChecked
     $pw = New-EmiSecurePassword -Length 20 -IncludeSpecial:$special
-    $ui.TxtVaultPassword.Text = $pw
+    $ui.TxtVaultPassword.Text = $pw; $ui.PwVaultPassword.Password = $pw
+})
+
+function Get-EmiVaultFormPassword {
+    if ($ui.ChkVaultShow.IsChecked) { return $ui.TxtVaultPassword.Text }
+    return $ui.PwVaultPassword.Password
+}
+# Mostrar u ocultar la contraseña del formulario (se copia de un campo al otro)
+$ui.ChkVaultShow.Add_Click({
+    if ($ui.ChkVaultShow.IsChecked) {
+        $ui.TxtVaultPassword.Text = $ui.PwVaultPassword.Password
+        $ui.PwVaultPassword.Visibility = 'Collapsed'; $ui.TxtVaultPassword.Visibility = 'Visible'
+    } else {
+        $ui.PwVaultPassword.Password = $ui.TxtVaultPassword.Text
+        $ui.TxtVaultPassword.Visibility = 'Collapsed'; $ui.PwVaultPassword.Visibility = 'Visible'
+    }
 })
 
 $ui.BtnVaultAdd.Add_Click({
     $app   = $ui.TxtVaultAppName.Text.Trim()
     $email = $ui.TxtVaultEmail.Text.Trim()
-    $pw    = $ui.TxtVaultPassword.Text
+    $pw    = Get-EmiVaultFormPassword
     if (-not $app -or -not $pw) {
         [System.Windows.MessageBox]::Show('Rellena al menos el nombre del servicio y la contrasena.', 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
         return
@@ -1283,7 +1353,7 @@ $ui.BtnVaultAdd.Add_Click({
     if ($id) {
         $ui.TxtVaultAppName.Text  = ''
         $ui.TxtVaultEmail.Text    = ''
-        $ui.TxtVaultPassword.Text = ''
+        $ui.TxtVaultPassword.Text = ''; $ui.PwVaultPassword.Clear()
         Update-EmiVaultUI
         Write-EmiLog 'Entrada guardada en el almacen.' Ok   # sin el nombre del servicio: el log no es secreto
     }
@@ -1381,9 +1451,9 @@ $ui.BtnAppsUninstall.Add_Click({
     if ($ans -ne 'Yes') { return }
 
     $ids = @($sel | ForEach-Object { $_.Tag })
-    Start-EmiWork -Label 'Desinstalando apps...' -Parameters @{ Ids = $ids } -Work {
+    Start-EmiWork -Label 'Desinstalando apps...' -Parameters @{ Ids = $ids } -Cancelable -Work {
         $n = 0
-        foreach ($id in $P.Ids) { if (Remove-EmiInstalledApp -PackageFullName $id) { $n++ } }
+        foreach ($id in $P.Ids) { if (Test-EmiCancel) { break }; if (Remove-EmiInstalledApp -PackageFullName $id) { $n++ } }
         Write-EmiLog "$n apps desinstaladas." Ok
         return $n
     } -OnDone {
@@ -1435,7 +1505,10 @@ $ui.BtnStoreSelectAll.Add_Click({
         $ui.ChkStoreMedia, $ui.ChkStorePhoto, $ui.ChkStorePixel, $ui.ChkStorePresent,
         $ui.ChkStoreReader, $ui.ChkStoreVault, $ui.ChkStoreWriter
     )
-    foreach ($c in $checks) { $c.IsChecked = $true }
+    # Marcar todas / ninguna: si ya estan todas, las desmarca
+    $all = (@($checks | Where-Object { -not $_.IsChecked }).Count -eq 0)
+    foreach ($c in $checks) { $c.IsChecked = -not $all }
+    $ui.BtnStoreSelectAll.Content = if ($all) { 'Marcar todas' } else { 'Desmarcar todas' }
 })
 
 $ui.BtnStoreUninstall.Add_Click({
@@ -1469,9 +1542,10 @@ $ui.BtnStoreUninstall.Add_Click({
 
     # Editores admitidos en ...\Uninstall para las apps de Another Suite (exactos)
     $publishers = @('Another Suite', 'Anoth3rHellsing', 'Another')
-    Start-EmiWork -Label 'Desinstalando apps de Another Store...' -Parameters @{ Names = $selected; Publishers = $publishers } -Work {
+    Start-EmiWork -Label 'Desinstalando apps de Another Store...' -Parameters @{ Names = $selected; Publishers = $publishers } -Cancelable -Work {
         $ok = 0; $fail = 0
         foreach ($name in $P.Names) {
+            if (Test-EmiCancel) { break }
             # DisplayName y Publisher exactos; las entradas de HKCU o de carpetas
             # del usuario se desinstalan sin privilegios (Invoke-EmiSafeUninstall)
             $found = @(Find-EmiUninstallEntry -DisplayName $name -Publisher $P.Publishers) | Select-Object -First 1
@@ -1605,9 +1679,10 @@ function Invoke-EmiProcAction {
     if ($ans -ne 'Yes') { return }
 
     $data = @($sel | ForEach-Object { [pscustomobject]@{ Name = $_.Name; Path = $_.Path } })
-    Start-EmiWork -Label 'Cerrando procesos...' -Parameters @{ D = $data; B = $Block } -Work {
+    Start-EmiWork -Label 'Cerrando procesos...' -Parameters @{ D = $data; B = $Block } -Cancelable -Work {
         $n = 0
         foreach ($x in $P.D) {
+            if (Test-EmiCancel) { break }
             if (Stop-EmiProcessByName -Name $x.Name) { $n++ }
             if ($P.B -and $x.Path) { [void](Block-EmiProcessNetwork -ExePath $x.Path -Label $x.Name) }
         }
@@ -1740,6 +1815,14 @@ $ui.BtnAnyOpen.Add_Click({
 #                        REGISTRO / DESHACER
 # ======================================================================
 
+$ui.BtnCancel.Add_Click({
+    if (-not $script:Worker) { return }
+    $global:EmiSync.Cancel = $true
+    $ui.BtnCancel.IsEnabled = $false
+    $ui.TbStatus.Text = 'Cancelando: se parará al terminar el paso en curso...'
+    Write-EmiLog 'Cancelación pedida: la tarea se parará al terminar el paso en curso.' Info
+})
+
 $ui.BtnUndoAll.Add_Click({
     $c = @(Get-EmiJournal).Count
     if ($c -eq 0) { [System.Windows.MessageBox]::Show('No hay cambios registrados.','Another''s Toolbox','OK','Information') | Out-Null; return }
@@ -1756,6 +1839,112 @@ $ui.BtnUndoAll.Add_Click({
         } else {
             Show-EmiTaskDone 'Cambios revertidos' -Extra 'Reinicia el equipo para que todo vuelva a su estado anterior.'
         }
+        Update-EmiJournalList
+    }
+})
+
+function Get-EmiJournalKey {
+    <#  Que toca una entrada (para no deshacer una antigua con otra mas nueva encima). #>
+    param($e)
+    switch ([string]$e.Kind) {
+        'Registry' { return 'reg|' + [string]$e.Path + '|' + [string]$e.Name }
+        'Service'  { return 'svc|' + [string]$e.Name }
+        'Task'     { return 'task|' + [string]$e.TaskPath + [string]$e.TaskName }
+        'Firewall' { return 'fw|' + [string]$e.RuleName }
+        'File'     { return 'file|' + [string]$e.Path }
+        default    { return 'cmd|' + [string]$e.Kind + '|' + (ConvertTo-Json -InputObject $e -Depth 4 -Compress) }
+    }
+}
+
+function Get-EmiJournalView {
+    <#  Filas del visor del diario, de la mas reciente a la mas antigua: cuando,
+        tipo, que y si se puede deshacer; Index es la posicion en el diario. #>
+    param([object[]] $Entries)
+    $kinds = @{ Registry = 'Registro de Windows'; Service = 'Servicio'; Task = 'Tarea programada'; Firewall = 'Regla de firewall'; File = 'Archivo'; Command = 'Otro cambio' }
+    $rows = New-Object System.Collections.ArrayList
+    $seen = @{}
+    for ($i = $Entries.Count - 1; $i -ge 0; $i--) {
+        $e = $Entries[$i]
+        $kind = [string]$e.Kind
+        $what = switch ($kind) {
+            'Registry' { [string]$e.Path + ' \ ' + [string]$e.Name }
+            'Service'  { 'Servicio ' + [string]$e.Name + ' (antes: ' + [string]$e.OldStartMode + ')' }
+            'Task'     { [string]$e.TaskPath + [string]$e.TaskName }
+            'Firewall' { [string]$e.RuleName }
+            'File'     { [string]$e.Path }
+            default    { $d = @($e.PSObject.Properties | Where-Object { $_.Name -notin 'Kind', 'Timestamp', 'Computer' } | ForEach-Object { $_.Name + '=' + [string]$_.Value }) -join '; '; if ($d.Length -gt 160) { $d.Substring(0, 160) + '...' } else { $d } }
+        }
+        $rev = 'sí'
+        if ($kind -eq 'Registry' -and [string]$e.Name -eq '(clave completa)') { $rev = 'no' }
+        elseif ($kind -eq 'File' -and -not $e.Backup) { $rev = 'no' }
+        elseif ($kind -eq 'Command' -and [string]$e.Action -eq 'Manual') { $rev = 'a mano' }
+        $key = Get-EmiJournalKey $e
+        $when = [string]$e.Timestamp
+        try { if ($when) { $when = ([datetime]$when).ToString('yyyy-MM-dd HH:mm') } } catch { }
+        [void]$rows.Add([pscustomobject]@{
+            Index = $i; When = $when; Kind = $(if ($kinds[$kind]) { $kinds[$kind] } else { $kind }); What = $what
+            Reversible = $rev; Name = ($what + ' (' + $when + ')'); Detail = $(if ($e.Computer) { 'Equipo: ' + $e.Computer } else { '' }); Path = ''
+            Newer = [bool]$seen[$key]; Json = (ConvertTo-Json -InputObject $e -Depth 8 -Compress)
+        })
+        $seen[$key] = $true
+    }
+    return ,$rows.ToArray()
+}
+
+function Update-EmiJournalList {
+    Start-EmiWork -Label 'Leyendo el diario de cambios...' -Work { return ,@(Get-EmiJournal) } -OnDone {
+        param($r)
+        $ui.LvJournal.ItemsSource = Get-EmiJournalView @(@($r)[-1])
+    }
+}
+
+$ui.BtnJournalRefresh.Add_Click({ Update-EmiJournalList })
+$ui.NavLog.Add_Checked({ if (-not $ui.LvJournal.ItemsSource -and -not $script:Worker) { Update-EmiJournalList } })
+
+$ui.BtnUndoOne.Add_Click({
+    $row = $ui.LvJournal.SelectedItem
+    if (-not $row) { [System.Windows.MessageBox]::Show('Elige en la lista el cambio que quieres deshacer.', 'Another''s Toolbox', 'OK', 'Information') | Out-Null; return }
+    if ($row.Newer) {
+        [System.Windows.MessageBox]::Show('Hay un cambio más reciente sobre lo mismo (' + $row.What + '). Deshaz primero ese, que está más arriba en la lista.', 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
+        return
+    }
+    $ans = [System.Windows.MessageBox]::Show('Se deshará este cambio:' + "`n`n" + $row.Kind + ': ' + $row.What + "`n" + 'Hecho el ' + $row.When + "`n`n" + '¿Continuar?', 'Deshacer un cambio', 'YesNo', 'Question', [System.Windows.MessageBoxResult]::No)
+    if ($ans -ne 'Yes') { return }
+    Start-EmiWork -Label 'Deshaciendo el cambio...' -Parameters @{ Index = [int]$row.Index; Json = [string]$row.Json } -Work {
+        # El mismo ejecutor que «Deshacer todo» (Test-EmiUndoEntry e Invoke-EmiUndoEntry), para una entrada
+        $entries = @(Get-EmiJournal)
+        $i = $P.Index
+        if ($i -ge $entries.Count -or (ConvertTo-Json -InputObject $entries[$i] -Depth 8 -Compress) -ne $P.Json) {
+            Write-EmiLog 'El diario ha cambiado desde que se cargó la lista: vuelve a elegir el cambio.' Warn
+            return 'Changed'
+        }
+        $e = $entries[$i]
+        $why = $null
+        try { $why = Test-EmiUndoEntry $e } catch { $why = $_.Exception.Message }
+        if ($why) { Write-EmiLog ('Entrada del diario rechazada (' + $e.Kind + '): ' + $why + '. No se aplica.') Warn; return 'Rejected' }
+        $r = 'Failed'
+        try { $r = [string](Invoke-EmiUndoEntry $e | Select-Object -Last 1) }
+        catch { Write-EmiLog ('Deshacer ' + $e.Kind + ': ' + $_.Exception.Message) Warn; $r = 'Failed' }
+        if ($r -in @('Reverted', 'Irreversible')) {
+            $rest = New-Object System.Collections.ArrayList
+            for ($k = 0; $k -lt $entries.Count; $k++) { if ($k -ne $i) { [void]$rest.Add($entries[$k]) } }
+            Set-EmiJournalContent -Entries $rest.ToArray()
+        }
+        if ($r -eq 'Reverted') { Write-EmiLog 'Cambio deshecho.' Ok }
+        return $r
+    } -OnDone {
+        param($r)
+        $res = [string](@($r)[-1])
+        Update-EmiHome
+        $msg = switch ($res) {
+            'Reverted'     { 'Cambio deshecho. Algunos cambios necesitan reiniciar el equipo.' }
+            'Irreversible' { 'Este cambio no guarda con qué deshacerlo: se ha quitado del diario. Mira el historial para saber cómo hacerlo a mano.' }
+            'Changed'      { 'El diario ha cambiado: se ha vuelto a cargar la lista.' }
+            'Rejected'     { 'La entrada no supera las comprobaciones de seguridad y no se ha aplicado (detalles en el historial).' }
+            default        { 'No se pudo deshacer ahora; sigue en el diario para reintentarlo (detalles en el historial).' }
+        }
+        [System.Windows.MessageBox]::Show($msg + (Get-EmiTaskIssueNote), 'Another''s Toolbox', 'OK', $(if ($res -eq 'Reverted') { 'Information' } else { 'Warning' })) | Out-Null
+        Update-EmiJournalList
     }
 })
 
