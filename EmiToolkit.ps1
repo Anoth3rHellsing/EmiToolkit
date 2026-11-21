@@ -158,6 +158,8 @@ function Start-EmiWork {
     if ($script:Worker) { Write-EmiLog 'Ya hay una tarea en curso.' Warn; return }
 
     Set-EmiBusy $true $Label
+    # Desde aqui se cuentan los avisos y errores de esta tarea (Get-EmiTaskIssues)
+    $script:WorkLogStart = $global:EmiSync.Log.Count
     $global:EmiSync.Progress = 0
     $global:EmiSync.Status   = $Label
     $global:EmiSync.Result   = $null
@@ -188,6 +190,50 @@ function Start-EmiWork {
         try { if ($ps) { $ps.Dispose() } } catch { }
         Set-EmiBusy $false 'Listo'
     }
+}
+
+# Avisos y errores de la ultima tarea: el mensaje final los cuenta en vez de
+# decir siempre que todo fue bien (en modo basico el registro no se ve).
+$script:WorkLogStart = 0
+$script:LastWarn = 0
+$script:LastErr  = 0
+function Update-EmiTaskIssues {
+    $script:LastWarn = 0; $script:LastErr = 0
+    $log = $global:EmiSync.Log
+    for ($k = $script:WorkLogStart; $k -lt $log.Count; $k++) {
+        $lv = $log[$k].Level
+        if ($lv -eq 'Warn') { $script:LastWarn++ } elseif ($lv -eq 'Error') { $script:LastErr++ }
+    }
+}
+
+function Get-EmiTaskIssues {
+    <#  '' si la ultima tarea no dejo avisos ni errores; si no, 'con 2 avisos y 1 error'. #>
+    $parts = @()
+    if ($script:LastErr -gt 0)  { $parts += ([string]$script:LastErr + $(if ($script:LastErr -eq 1) { ' error' } else { ' errores' })) }
+    if ($script:LastWarn -gt 0) { $parts += ([string]$script:LastWarn + $(if ($script:LastWarn -eq 1) { ' aviso' } else { ' avisos' })) }
+    if ($parts.Count -eq 0) { return '' }
+    return 'con ' + ($parts -join ' y ')
+}
+
+$script:LogHint = 'mira el registro (Modo avanzado > Registro y deshacer, o la carpeta Data)'
+
+function Get-EmiTaskIssueNote {
+    <#  Nota para anadir a un mensaje propio: vacia si no hubo avisos ni errores. #>
+    $i = Get-EmiTaskIssues
+    if (-not $i) { return '' }
+    return "`n`n" + 'La tarea termino ' + $i + ': ' + $script:LogHint + '.'
+}
+
+function Show-EmiTaskDone {
+    <#  Mensaje final de una tarea con el recuento de avisos y errores.
+        -OnlyIfIssues: no molesta si todo fue bien. -Warn: fuerza el icono de aviso. #>
+    param([string] $What, [string] $Extra = '', [switch] $OnlyIfIssues, [switch] $Warn)
+    $i = Get-EmiTaskIssues
+    if (-not $i -and $OnlyIfIssues) { return }
+    $msg  = if ($i) { $What + ' ' + $i + ': ' + $script:LogHint + '.' } else { $What + '.' }
+    if ($Extra) { $msg += "`n`n" + $Extra }
+    $icon = if ($i -or $Warn) { 'Warning' } else { 'Information' }
+    [System.Windows.MessageBox]::Show($msg, 'Another''s Toolbox', 'OK', $icon) | Out-Null
 }
 
 # Temporizador que refresca la interfaz y recoge el resultado
@@ -222,6 +268,7 @@ $timer.Add_Tick({
                 $errs = $script:Worker.Streams.Error
                 if ($errs -and $errs.Count -gt 0) { foreach ($e in $errs) { Write-EmiLog ([string]$e) Warn } }
             } finally {
+                try { Update-EmiTaskIssues } catch { }
                 try { $script:Worker.Runspace.Close(); $script:Worker.Dispose() } catch { }
                 $script:Worker = $null; $script:WorkHandle = $null
                 Set-EmiBusy $false 'Listo'
@@ -571,12 +618,12 @@ function Start-EmiMaintenance {
             Write-EmiLog '=== 6/7  Firewall de ESET (KB332) ===' Step
             if (@($P.EsetGroups).Count -gt 0) { [void](Invoke-EmiEsetFirewall -Groups $P.EsetGroups -ResolveHostnames) }
             else { [void](Invoke-EmiEsetFirewall -ResolveHostnames) }
-        } else { Write-EmiLog '=== 6/7  Firewall de ESET omitido ===' Warn }
+        } else { Write-EmiLog '=== 6/7  Firewall de ESET omitido ===' Info }
 
         if ($P.Zen) {
             Write-EmiLog '=== 7/7  Navegador predeterminado ===' Step
             [void](Set-EmiZenDefault)
-        } else { Write-EmiLog '=== 7/7  Navegador omitido ===' Warn }
+        } else { Write-EmiLog '=== 7/7  Navegador omitido ===' Info }
 
         Write-EmiLog "MANTENIMIENTO TERMINADO. Espacio liberado: $(Format-EmiSize $freed)" Ok
         Set-EmiStatus 'Mantenimiento terminado' 100
@@ -587,8 +634,10 @@ function Start-EmiMaintenance {
         Update-EmiHome
         $res = @($r)[-1]
         $freed = 0; if ($res -and $res.Freed) { $freed = $res.Freed }
-        $doneMsg = 'Mantenimiento terminado.' + "`n`n" + 'Espacio liberado: ' + (Format-EmiSize $freed) + "`n`n" + 'Conviene reiniciar el equipo para que todo se aplique.'
-        [System.Windows.MessageBox]::Show($doneMsg, 'Another''s Toolbox', 'OK', 'Information') | Out-Null
+        $extra = 'Espacio liberado: ' + (Format-EmiSize $freed) + "`n`n" + 'Conviene reiniciar el equipo para que todo se aplique.'
+        $rpFailed = ($res -and $res.Restore -eq $false)
+        if ($rpFailed) { $extra = 'ATENCION: no se pudo crear el punto de restauracion, asi que no hay uno de antes de estos cambios. Lo registrado se puede revertir desde Registro y deshacer.' + "`n`n" + $extra }
+        Show-EmiTaskDone 'Mantenimiento terminado' -Extra $extra -Warn:$rpFailed
     }
 }
 
@@ -628,6 +677,7 @@ $ui.BtnDiskClean.Add_Click({
         $freed = 0; if ($r) { $freed = @($r)[-1] }
         $ui.TbDiskTotal.Text = "Liberado: $(Format-EmiSize $freed)"
         Update-EmiHome
+        Show-EmiTaskDone 'Limpieza terminada' -Extra ('Liberado: ' + (Format-EmiSize $freed))
         $ui.BtnDiskScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
     }
 })
@@ -636,7 +686,9 @@ $ui.BtnDiskDism.Add_Click({
     $dismMsg = 'Se limpiaran las versiones antiguas de los componentes de Windows (WinSxS) con DISM.' + "`n`n" + 'Puede tardar varios minutos y NO se puede deshacer: despues ya no podras desinstalar las actualizaciones de Windows que ya estan instaladas.' + "`n`n" + 'Continuar?'
     $ans = [System.Windows.MessageBox]::Show($dismMsg, 'Limpiar componentes (DISM)', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
-    Start-EmiWork -Label 'DISM: limpiando componentes...' -Work { return (Invoke-EmiComponentCleanup) } -OnDone { Update-EmiHome }
+    Start-EmiWork -Label 'DISM: limpiando componentes...' -Work { return (Invoke-EmiComponentCleanup) } -OnDone {
+        Update-EmiHome; Show-EmiTaskDone 'Limpieza de componentes (DISM) terminada'
+    }
 })
 
 $ui.BtnScanFiles.Add_Click({
@@ -675,7 +727,7 @@ $ui.BtnDeleteBig.Add_Click({
     $paths = @($sel | ForEach-Object { $_.Path })
     Start-EmiWork -Label 'Enviando a la papelera...' -Parameters @{ Paths = $paths } -Work {
         return (Remove-EmiFilesToRecycleBin -Paths $P.Paths)
-    } -OnDone { Update-EmiHome }
+    } -OnDone { Update-EmiHome; Show-EmiTaskDone 'Archivos enviados a la papelera' }
 })
 
 # ======================================================================
@@ -693,13 +745,14 @@ $ui.BtnTweakApply.Add_Click({
         return (Invoke-EmiTweakSet -Ids $P.Ids)
     } -OnDone {
         Update-EmiHome
-        [System.Windows.MessageBox]::Show('Optimizacion aplicada. Algunos cambios necesitan reiniciar el Explorador o el equipo.',
-            'Another''s Toolbox','OK','Information') | Out-Null
+        Show-EmiTaskDone 'Optimizacion aplicada' -Extra 'Algunos cambios necesitan reiniciar el Explorador o el equipo.'
     }
 })
 
 $ui.BtnRestartExplorer.Add_Click({
-    Start-EmiWork -Label 'Reiniciando el Explorador...' -Work { return (Restart-EmiExplorer) }
+    Start-EmiWork -Label 'Reiniciando el Explorador...' -Work { return (Restart-EmiExplorer) } -OnDone {
+        Show-EmiTaskDone 'Reinicio del Explorador' -OnlyIfIssues
+    }
 })
 
 # ======================================================================
@@ -722,7 +775,7 @@ $ui.BtnPrivApply.Add_Click({
     if (-not $ok) { return }
     Start-EmiWork -Label 'Desactivando telemetria...' -Parameters @{ Ids = $ids } -Work {
         return (Invoke-EmiPrivacySet -Ids $P.Ids)
-    } -OnDone { Update-EmiHome }
+    } -OnDone { Update-EmiHome; Show-EmiTaskDone 'Ajustes de privacidad aplicados' }
 })
 
 # ======================================================================
@@ -781,6 +834,7 @@ $ui.BtnPrivRecZenDownload.Add_Click({ Start-Process 'https://zen-browser.app/' }
 $ui.BtnPrivRecZenSet.Add_Click({
     Start-EmiWork -Label 'Configurando Zen...' -Work { return (Set-EmiZenDefault) } -OnDone {
         Update-EmiPrivRecsPage; Update-EmiHome
+        Show-EmiTaskDone 'Configuracion de Zen' -OnlyIfIssues
     }
 })
 
@@ -942,6 +996,7 @@ $ui.BtnDebloatApply.Add_Click({
         }
         $ui.LvDebloat.ItemsSource = $db
         Update-EmiHome
+        Show-EmiTaskDone 'Debloat terminado' -Extra 'Algunos cambios de caracteristicas de Windows necesitan reiniciar.'
     }
 })
 
@@ -987,6 +1042,8 @@ $ui.BtnAppsUninstall.Add_Click({
         Write-EmiLog "$n apps desinstaladas." Ok
         return $n
     } -OnDone {
+        param($r)
+        Show-EmiTaskDone 'Desinstalacion terminada' -Extra ([string](@($r)[-1]) + ' apps desinstaladas.')
         $ui.BtnAppsScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
         Update-EmiHome
     }
@@ -1010,6 +1067,9 @@ $ui.BtnAppsClearCache.Add_Click({
         Write-EmiLog "Cache limpiada: $(Format-EmiSize $freed) liberados en total." Ok
         return $freed
     } -OnDone {
+        param($r)
+        $cf = 0; if ($r) { $cf = @($r)[-1] }
+        Show-EmiTaskDone 'Cache limpiada' -Extra ('Liberado: ' + (Format-EmiSize $cf))
         $ui.BtnAppsScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
         Update-EmiHome
     }
@@ -1119,7 +1179,7 @@ $ui.BtnEsetApply.Add_Click({
     Start-EmiWork -Label 'Aplicando reglas de ESET...' -Parameters @{ G = $g; Dns = $dns } -Work {
         if ($P.Dns) { return (Invoke-EmiEsetFirewall -Groups $P.G -ResolveHostnames) }
         return (Invoke-EmiEsetFirewall -Groups $P.G)
-    } -OnDone { Update-EmiHome }
+    } -OnDone { Update-EmiHome; Show-EmiTaskDone 'Reglas de ESET aplicadas' }
 })
 
 $ui.BtnEsetTest.Add_Click({
@@ -1139,7 +1199,7 @@ $ui.BtnEsetRemove.Add_Click({
     $ans = [System.Windows.MessageBox]::Show('Se eliminaran todas las reglas ESET KB332 creadas por esta app. Continuar?',
         'Confirmar', 'YesNo', 'Warning', [System.Windows.MessageBoxResult]::No)
     if ($ans -ne 'Yes') { return }
-    Start-EmiWork -Label 'Quitando reglas...' -Work { return (Remove-EmiEsetFirewall) } -OnDone { Update-EmiHome }
+    Start-EmiWork -Label 'Quitando reglas...' -Work { return (Remove-EmiEsetFirewall) } -OnDone { Update-EmiHome; Show-EmiTaskDone 'Reglas de ESET quitadas' }
 })
 
 # ======================================================================
@@ -1161,7 +1221,7 @@ $ui.BtnStartupDisable.Add_Click({
         foreach ($t in $P.Tags) { if (Disable-EmiStartupItem -Tag $t) { $n++ } }
         Write-EmiLog "$n programas quitados del arranque." Ok
         return $n
-    } -OnDone { $ui.BtnStartupScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
+    } -OnDone { Show-EmiTaskDone ([string](@($args[0])[-1]) + ' programas quitados del arranque'); $ui.BtnStartupScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 })
 
 $ui.BtnStartupEnable.Add_Click({
@@ -1173,7 +1233,7 @@ $ui.BtnStartupEnable.Add_Click({
         foreach ($t in $P.Tags) { if (Enable-EmiStartupItem -Tag $t) { $n++ } }
         Write-EmiLog "$n programas reactivados." Ok
         return $n
-    } -OnDone { $ui.BtnStartupScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
+    } -OnDone { Show-EmiTaskDone ([string](@($args[0])[-1]) + ' programas reactivados'); $ui.BtnStartupScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 })
 
 # ======================================================================
@@ -1212,7 +1272,7 @@ function Invoke-EmiProcAction {
         }
         Write-EmiLog "$n procesos cerrados." Ok
         return $n
-    } -OnDone { $ui.BtnProcScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
+    } -OnDone { Show-EmiTaskDone ([string](@($args[0])[-1]) + ' procesos cerrados'); $ui.BtnProcScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 }
 
 $ui.BtnProcKill.Add_Click({ Invoke-EmiProcAction $false })
@@ -1237,7 +1297,7 @@ $ui.BtnVortexRemove.Add_Click({
     if ($ans -ne 'Yes') { return }
     Start-EmiWork -Label 'Purgando mods de Vortex...' -Parameters @{ Tags = $tags } -Work {
         return (Remove-EmiVortexMods -Tags $P.Tags)
-    } -OnDone { $ui.BtnVortexScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
+    } -OnDone { Show-EmiTaskDone 'Purga de mods terminada'; $ui.BtnVortexScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 })
 
 $ui.BtnVortexFullClean.Add_Click({
@@ -1253,6 +1313,7 @@ $ui.BtnVortexFullClean.Add_Click({
         return (Remove-EmiVortexFull)
     } -OnDone {
         Update-EmiHome
+        Show-EmiTaskDone 'Eliminacion de Vortex terminada'
         $ui.BtnVortexScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
     }
 })
@@ -1265,6 +1326,7 @@ $ui.BtnVortexSkyrimClean.Add_Click({
         return (Remove-EmiVortexSkyrimFull)
     } -OnDone {
         Update-EmiHome
+        Show-EmiTaskDone 'Force Clean Skyrim terminado'
         $ui.BtnVortexScan.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
     }
 })
@@ -1284,7 +1346,9 @@ $ui.BtnZenSet.Add_Click({
             'NotInstalled'   { 'Zen no esta instalado: no se ha cambiado nada.' }
             default          { 'Windows pide confirmarlo a mano. Se abrio Configuracion > Aplicaciones predeterminadas: busca Zen y pulsa "Establecer como predeterminado".' }
         }
-        [System.Windows.MessageBox]::Show($msg, 'Zen Browser', 'OK', 'Information') | Out-Null
+        $msg += Get-EmiTaskIssueNote
+        $zenIcon = if (Get-EmiTaskIssues) { 'Warning' } else { 'Information' }
+        [System.Windows.MessageBox]::Show($msg, 'Zen Browser', 'OK', $zenIcon) | Out-Null
     }
 })
 
@@ -1295,14 +1359,14 @@ $ui.BtnFastDisable.Add_Click({
     Start-EmiWork -Label 'Desactivando inicio rapido...' -Parameters @{ H = $h } -Work {
         if ($P.H) { return (Disable-EmiFastStartup -AlsoDisableHibernation) }
         return (Disable-EmiFastStartup)
-    } -OnDone { Update-EmiSystemPage; Update-EmiHome }
+    } -OnDone { Update-EmiSystemPage; Update-EmiHome; Show-EmiTaskDone 'Inicio rapido desactivado' -OnlyIfIssues }
 })
 
 $ui.BtnFastEnable.Add_Click({
     # En segundo plano y por la cola de tareas: escribir en el diario desde la
     # UI mientras otra tarea lo reescribe perdia entradas
     Start-EmiWork -Label 'Reactivando inicio rapido...' -Work { return (Enable-EmiFastStartup) } -OnDone {
-        Update-EmiSystemPage; Update-EmiHome
+        Update-EmiSystemPage; Update-EmiHome; Show-EmiTaskDone 'Inicio rapido reactivado' -OnlyIfIssues
     }
 })
 
@@ -1339,10 +1403,9 @@ $ui.BtnUndoAll.Add_Click({
         $left = @(Get-EmiJournal).Count
         if ($left -gt 0) {
             $undoDone = 'Se revirtieron ' + [string](@($args[0])[-1]) + ' cambios. ' + $left + ' no se pudieron revertir y siguen registrados (detalles en el registro). Reinicia el equipo y vuelve a intentarlo.'
-            [System.Windows.MessageBox]::Show($undoDone, 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
+            [System.Windows.MessageBox]::Show($undoDone + (Get-EmiTaskIssueNote), 'Another''s Toolbox', 'OK', 'Warning') | Out-Null
         } else {
-            [System.Windows.MessageBox]::Show('Cambios revertidos. Reinicia el equipo para que todo vuelva a su estado anterior.',
-                'Another''s Toolbox','OK','Information') | Out-Null
+            Show-EmiTaskDone 'Cambios revertidos' -Extra 'Reinicia el equipo para que todo vuelva a su estado anterior.'
         }
     }
 })
