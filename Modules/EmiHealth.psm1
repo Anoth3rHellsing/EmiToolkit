@@ -713,8 +713,8 @@ function Get-EmiHealthAlmacenamiento {
             $pct = 100 * $free / $size
             $txt = (Format-EmiHealthBytes $free) + ' libres de ' + (Format-EmiHealthBytes $size) + ' (' + (Format-EmiHealthNumber $pct 0) + ' %)'
             $verdict = 'bien'; $todo = $null
-            if ($pct -lt 10) { $verdict = 'mal'; $todo = 'Libera espacio en ' + $v.Letter + ': usa Optimizar ahora o Espacio en disco para ver qué ocupa más.' }
-            elseif ($pct -lt 15) { $verdict = 'atencion'; $todo = 'Queda poco espacio en ' + $v.Letter + ': usa Espacio en disco para buscar archivos grandes.' }
+            if ($pct -lt 10) { $verdict = 'mal'; $todo = 'Libera espacio en la unidad ' + $v.Letter + ' con Optimizar ahora, o mira qué ocupa más en Espacio en disco.' }
+            elseif ($pct -lt 15) { $verdict = 'atencion'; $todo = 'Queda poco espacio en la unidad ' + $v.Letter + ': busca archivos grandes en Espacio en disco.' }
             [void]$rows.Add((New-EmiHealthRow ('Unidad ' + $v.Letter + $(if ($v.FileSystem) { ' (' + $v.FileSystem + ')' } else { '' })) $txt $verdict $todo))
         }
         if ($rows.Count -eq 0) { [void]$rows.Add((New-EmiHealthRow 'Espacio libre' 'no se encontraron unidades fijas' 'nd')) }
@@ -800,7 +800,7 @@ function Get-EmiHealthBateria {
         $design = [double]$b.Design; $full = [double]$b.Full
         if ($design -gt 0 -and $full -gt 0) {
             $pct = 100 * $full / $design
-            $txt = (Format-EmiHealthNumber $full 0) + ' de ' + (Format-EmiHealthNumber $design 0) + ' mWh de fábrica (' + (Format-EmiHealthNumber ([math]::Min($pct, 100)) 0) + ' %)'
+            $txt = (Format-EmiHealthNumber $full 0) + ' de ' + (Format-EmiHealthNumber $design 0) + ' mWh de fábrica (' + (Format-EmiHealthNumber ([math]::Min([double]$pct, [double]100)) 0) + ' %)'
             $v = 'bien'; $todo = $null
             if ($pct -lt 50) { $v = 'mal'; $todo = 'La batería retiene menos de la mitad de su carga original: conviene cambiarla.' }
             elseif ($pct -lt 80) { $v = 'atencion'; $todo = 'La batería ha perdido capacidad: dura menos que nueva. Evita dejarla al 100 % enchufada todo el día.' }
@@ -935,10 +935,11 @@ function Get-EmiHealthSeguridad {
         }
     } else { [void]$rows.Add((New-EmiHealthRow 'TPM' 'no disponible' 'nd')) }
 
-    $u = $R.Uac
-    if ($u -and $null -ne $u.EnableLua) {
-        if ([int]$u.EnableLua -eq 0) { [void]$rows.Add((New-EmiHealthRow 'Control de cuentas (UAC)' 'Desactivado' 'mal' 'Activa el Control de cuentas de usuario: sin él, cualquier programa corre como administrador.')) }
-        elseif ($null -ne $u.ConsentAdmin -and [int]$u.ConsentAdmin -eq 0) { [void]$rows.Add((New-EmiHealthRow 'Control de cuentas (UAC)' 'Activado, pero eleva sin preguntar' 'atencion' 'Sube el Control de cuentas de usuario al nivel predeterminado.')) }
+    # (no llamar $u a nada aquí: PowerShell no distingue $u de $U)
+    $uac = $R.Uac
+    if ($uac -and $null -ne $uac.EnableLua) {
+        if ([int]$uac.EnableLua -eq 0) { [void]$rows.Add((New-EmiHealthRow 'Control de cuentas (UAC)' 'Desactivado' 'mal' 'Activa el Control de cuentas de usuario: sin él, cualquier programa corre como administrador.')) }
+        elseif ($null -ne $uac.ConsentAdmin -and [int]$uac.ConsentAdmin -eq 0) { [void]$rows.Add((New-EmiHealthRow 'Control de cuentas (UAC)' 'Activado, pero eleva sin preguntar' 'atencion' 'Sube el Control de cuentas de usuario al nivel predeterminado.')) }
         else { [void]$rows.Add((New-EmiHealthRow 'Control de cuentas (UAC)' 'Activado' 'bien')) }
     } else { [void]$rows.Add((New-EmiHealthRow 'Control de cuentas (UAC)' 'no disponible' 'nd')) }
 
@@ -1123,8 +1124,8 @@ $script:HealthCss = @'
 --bad-bg:#FFE3DC;--bad-fg:#982811;--bad-br:#EE8F77;--nd-bg:#E7EEF2;--nd-fg:#3F5A69;--nd-br:#B7C7D1}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
-body{margin:0;min-height:100vh;font-family:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;color:var(--deep);
-background:#9ed8f2 linear-gradient(160deg,#E3F4FD 0%,#95D9F6 30%,#4DBBEC 60%,#67D0C4 82%,#97DC5F 100%) fixed;line-height:1.45}
+html{min-height:100%;background:#9ed8f2 linear-gradient(160deg,#E3F4FD 0%,#95D9F6 30%,#4DBBEC 60%,#67D0C4 82%,#97DC5F 100%)}
+body{margin:0;font-family:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;color:var(--deep);background:transparent;line-height:1.45}
 .wrap{max-width:1000px;margin:0 auto;padding:24px 16px 32px}
 .card{background:linear-gradient(180deg,rgba(255,255,255,.93),rgba(255,255,255,.80) 45%,rgba(235,248,255,.74));
 border:1px solid rgba(255,255,255,.75);border-radius:14px;box-shadow:0 2px 16px rgba(7,64,94,.18);padding:18px 20px;margin:0 0 14px}
@@ -1165,6 +1166,10 @@ h2{font-size:17px;font-weight:600;margin:0;color:var(--deep)}
 footer{font-size:12.5px;color:var(--deep);text-align:center;padding:6px 10px 0;opacity:.9}
 @media (max-width:620px){
  h1{font-size:25px}
+ .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+ .tile{padding:11px 12px}
+ .tile h2{font-size:14px}
+ .tile p{display:none}
  .card{padding:15px 14px}
  .rows,.rows tbody,.rows tr,.rows th,.rows td{display:block;width:auto}
  .rows tr{border-top:1px solid rgba(11,92,138,.14);padding:8px 0}
@@ -1172,7 +1177,7 @@ footer{font-size:12.5px;color:var(--deep);text-align:center;padding:6px 10px 0;o
  .rows td.s{text-align:left;padding-top:4px}
 }
 @media print{
- body{background:#fff}
+ html,body{background:#fff}
  .card{box-shadow:none;border:1px solid #c9d9e3;break-inside:avoid}
  .tile:hover{box-shadow:none}
 }
@@ -1188,7 +1193,7 @@ function Get-EmiVerdictLabel {
 function ConvertTo-EmiHealthSpark {
     <#  Línea del índice de estabilidad (0-10) en SVG en línea: solo números. #>
     param([double[]] $Values)
-    $vals = @($Values | ForEach-Object { [math]::Max(0, [math]::Min(10, [double]$_)) })
+    $vals = @($Values | ForEach-Object { [math]::Max([double]0, [math]::Min([double]10, [double]$_)) })
     if ($vals.Count -lt 2) { return '' }
     $w = 400.0; $h = 70.0; $pad = 4.0
     $inv = [Globalization.CultureInfo]::InvariantCulture
