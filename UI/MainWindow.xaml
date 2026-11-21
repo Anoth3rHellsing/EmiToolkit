@@ -1231,7 +1231,7 @@
             <StackPanel Grid.Row="0">
               <TextBlock Style="{StaticResource H1}" Text="Optimizar Windows 11"/>
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
-                         Text="Quita lo que sobra sin tocar la transparencia ni las animaciones del sistema."/>
+                         Text="Quita lo que sobra. Lo recomendado viene marcado; el resto es opcional."/>
             </StackPanel>
             <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
               <Button x:Name="BtnTweakApply" Style="{StaticResource GlossGreenBtn}" Content="Aplicar seleccionado"/>
