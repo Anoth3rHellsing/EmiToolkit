@@ -470,16 +470,20 @@ salida_texto() {
   printf '\n%s%s%s %s· análisis (no se ha cambiado nada)%s\n' "$C_B" "$ATB_NOMBRE" "$C_R" "$C_D" "$C_R"
   if hay sw_vers; then printf '%smacOS %s%s\n' "$C_D" "$(sw_vers -productVersion 2>/dev/null)" "$C_R"; fi
   # Primero las columnas de ancho fijo (ASCII): printf cuenta bytes, no letras.
-  printf '\n%s  #  %-10s %-16s %s%s\n' "$C_B" "Ocupa" "Se puede quitar" "Categoria  [id]" "$C_R"
+  printf '\n%s  #  %-10s %-16s %s%s\n' "$C_B" "Ocupa" "Se puede quitar" "Categoría  [id]" "$C_R"
   n=0; total_ok=0; total_rev=0
   while IFS="$TAB" read -r kb id; do
     n=$((n + 1)); cargar "$id"
     case $K_SEG in seguro) total_ok=$((total_ok + kb)) ;; cuidado) total_rev=$((total_rev + kb)) ;; esac
     tam=$(legible "$kb"); [ "$id" = snapshots ] && tam="?"
     [ "$(cat "$TMP/pres.$id")" = vacio ] && [ "$kb" -eq 0 ] && tam="vacio"
-    case $K_SEG in seguro) et="Si" ;; cuidado) et="Con cuidado" ;; *) et="Solo revisar" ;; esac
-    case $K_SEG in seguro) ec=$C_VE ;; cuidado) ec=$C_AM ;; *) ec=$C_AZ ;; esac
-    printf ' %2d. %-10s %s%-16s%s %s  %s[%s]%s\n' "$n" "$tam" "$ec" "$et" "$C_R" "$K_TIT" "$C_D" "$id" "$C_R"
+    # Ya rellenas a 16 letras («Sí» lleva tilde y printf contaría un byte de más).
+    case $K_SEG in
+      seguro) et="Sí              "; ec=$C_VE ;;
+      cuidado) et="Con cuidado     "; ec=$C_AM ;;
+      *) et="Solo revisar    "; ec=$C_AZ ;;
+    esac
+    printf ' %2d. %-10s %s%s%s %s  %s[%s]%s\n' "$n" "$tam" "$ec" "$et" "$C_R" "$K_TIT" "$C_D" "$id" "$C_R"
   done <"$TMP/orden.s"
   [ "$n" -eq 0 ] && printf '  No he encontrado nada de lo que busco.\n'
 
