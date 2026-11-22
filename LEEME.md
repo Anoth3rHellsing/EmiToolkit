@@ -1,5 +1,7 @@
 # Another's Toolbox
 
+Versión **0.4.0** (la misma que se ve en la barra de título; cambios en `changelog.txt`).
+
 Aplicación de mantenimiento para Windows 11. Interfaz WPF con la transparencia
 nativa del sistema (acrylic), estilo Frutiger Aero. Sin terminal, sin instalación,
 sin compilar nada: es una carpeta portable. Los archivos se siguen llamando
@@ -56,6 +58,40 @@ Al terminar muestra cuánto espacio se liberó, cuántos avisos o errores hubo
 
 ---
 
+## Informe de salud
+
+El botón **Informe de salud** de *Inicio* revisa el equipo **sin cambiar
+nada** y genera un HTML en español con un veredicto (*bien*, *atención*,
+*mal* o *no disponible*) y una línea de «qué hacer» por apartado:
+
+- **Equipo**: edición y versión de Windows, último reinicio, reinicio
+  pendiente e Inicio rápido.
+- **Almacenamiento**: espacio libre de cada unidad fija (aviso por debajo del
+  15 %), estado de los discos físicos (desgaste, temperatura y errores de
+  lectura cuando el disco los da) y, si se marca la casilla, el análisis de
+  WinSxS con DISM (tarda varios minutos).
+- **Batería** (portátiles): capacidad actual frente a la de fábrica y ciclos.
+- **Estabilidad**: índice de confiabilidad de los últimos 30 días, apagados
+  inesperados, pantallazos azules y programas que se cierran solos.
+- **Seguridad**: antivirus (Defender o el que haya, como ESET), firewall,
+  BitLocker, Secure Boot, TPM, UAC y la última actualización instalada.
+- **Arranque**: programas que arrancan con Windows y, si Windows la registra,
+  la duración del último arranque.
+- **Lo que cambió Another's Toolbox**: resumen del diario de deshacer.
+- **Antes y después**: *Optimizar ahora* guarda una foto (espacio libre,
+  programas de arranque, servicios…) antes y después, y el siguiente informe
+  muestra la diferencia.
+
+El informe solo lleva el nombre del equipo: ni usuarios, ni rutas, ni
+números de serie. No usa la red ni carga nada externo. Se guarda en
+`%ProgramData%\EmiToolkit\informes\salud-<fecha>.html` (solo administradores)
+y una copia en **Documentos** del usuario que tiene la sesión abierta, que se
+abre en su navegador sin permisos de administrador. Si no se puede dejar esa
+copia con seguridad (escritorio remoto, Documentos en red o con un enlace),
+queda solo en ProgramData y el mensaje final lo dice.
+
+---
+
 ## Los apartados del modo avanzado
 
 | Apartado | Para qué sirve |
@@ -64,18 +100,23 @@ Al terminar muestra cuánto espacio se liberó, cuántos avisos o errores hubo
 | **Optimizar Windows** | Las 43 optimizaciones una por una, con las recomendadas premarcadas y avisos en las opcionales |
 | **Telemetría** | Los 27 ajustes de privacidad por separado, incluido el bloqueo de dominios en el archivo `hosts` |
 | **Recomendaciones** | Zen Browser y uBlock Origin, comprobación de cuentas filtradas y un almacén de contraseñas cifrado con tu usuario de Windows |
-| **Debloat** | Apps preinstaladas y características de Windows que se pueden quitar |
+| **Apps preinstaladas** | Quitar apps que vienen con Windows (antes «Debloat») y características de Windows |
 | **Aplicaciones** | Las apps instaladas del usuario: desinstalar y limpiar su caché |
 | **Firewall ESET** | Los 28 grupos del KB332, prueba de conexión contra los servidores de ESET, y quitar las reglas |
 | **Arranque** | Todo lo que arranca con Windows (registro, carpetas de Inicio y tareas programadas) con su estado real, y se desactiva o reactiva |
 | **Procesos y RAM** | Procesos agrupados por consumo, clasificados en Sistema / Telemetría / Prescindible / Normal; se pueden cerrar, y a los de Telemetría además se les puede cortar Internet |
 | **Vortex** | Mods y datos de Vortex: purgar mods, borrar Vortex por completo o limpiar Skyrim (irreversible) |
 | **Navegador y energía** | Zen como predeterminado, inicio rápido e hibernación |
-| **Registro y deshacer** | Log en vivo y el botón que revierte **todos** los cambios anotados |
+| **Historial y deshacer** | La lista de cambios anotados (cuándo, qué y si se puede deshacer) para deshacer uno o todos, y el historial en vivo coloreado por nivel |
 | **Another Store** | Desinstalar las apps de Another Suite |
 
 Las acciones que borran o desinstalan piden confirmación con *No* por defecto, y
-cada tarea termina con un resumen de avisos y errores.
+cada tarea termina con un resumen de avisos y errores. Las tareas largas
+(mantenimiento, desinstalar apps, cerrar procesos) tienen **Cancelar** en la barra
+inferior: paran al terminar el paso en curso, nunca a mitad de un cambio.
+
+En este documento, *Registro de Windows* es la base de datos de configuración del
+sistema; lo que la app va anotando se llama *historial*.
 
 ---
 
@@ -113,7 +154,9 @@ archivo `hosts` desde su copia protegida y sus propias reglas de firewall. Las
 entradas de otro equipo o fuera de esas listas se rechazan, se anotan en el
 registro y se apartan en `undo-journal.rechazadas.jsonl`.
 
-**Registro y deshacer → Revertir todos los cambios** lo devuelve todo a su estado
+**Historial y deshacer → Deshacer el seleccionado** deshace un solo cambio de la
+lista (se niega si hay otro más reciente sobre lo mismo: primero ese).
+**Deshacer todos los cambios** lo devuelve todo a su estado
 original, en orden inverso. Lo que no se pueda revertir en ese momento se queda
 en el diario para volver a intentarlo; lo que nunca se podrá deshacer (archivos
 borrados sin copia) se avisa en el registro. Además queda el punto de
@@ -192,9 +235,26 @@ EmiToolkit\
     EmiStartup.psm1       programas de arranque
     EmiProcess.psm1       procesos y RAM
     EmiSystem.psm1        Zen, inicio rápido, AnyDesk
-  (datos)                 %ProgramData%\EmiToolkit: logs, diario, copia de hosts
+    EmiHealth.psm1        informe de salud (solo lectura)
+  (datos)                 %ProgramData%\EmiToolkit: logs, diario, copia de hosts,
+                          informes de salud (informes\)
                           %LOCALAPPDATA%\EmiToolkit: bóveda de contraseñas
 ```
+
+## Rendimiento y accesibilidad
+
+- Al arrancar compila como mucho un bloque de C#; la copia compilada se guarda en
+  `%ProgramData%\EmiToolkit\cache` (solo administradores) con el hash del código
+  en el nombre, y solo se carga si el hash coincide y la carpeta sigue protegida.
+  El tiempo de arranque queda anotado en el historial.
+- Las consultas del estado del equipo y las listas largas se hacen en segundo
+  plano; todas las tareas comparten un único runspace.
+- La ventana se ajusta al área de trabajo (pensado para 125-150 % en 1366x768 y
+  1080p), las columnas se reparten el ancho y cada fila muestra su texto completo
+  al pasar el ratón.
+- Contraste de los botones de 5:1 o más, anillo de foco visible, nombres para
+  Narrador, teclas de acceso (Alt+letra) y colores del sistema con el contraste
+  alto de Windows.
 
 ## Requisitos
 

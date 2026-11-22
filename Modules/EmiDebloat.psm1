@@ -22,6 +22,8 @@ $script:BloatApps = @(
     @{ Id='RemoveTeamsConsumer'; Pkg='MSTeams_8wekyb3d8bbwe';                             Name='Microsoft Teams (nuevo)'; Recommended=$false; Info='AVISO: es el Teams actual, el mismo que se usa para trabajo y clase' }
     @{ Id='RemoveOutlookNew';    Pkg='Microsoft.OutlookForWindows_8wekyb3d8bbwe';         Name='Nuevo Outlook';        Recommended=$false; Info='Outlook PWA reemplazo de Mail' }
     @{ Id='RemovePhoneLink';     Pkg='Microsoft.YourPhone_8wekyb3d8bbwe';                 Name='Enlace a telefono';    Recommended=$true;  Info='Sincronizacion movil-PC' }
+    # Desde 24H2 Copilot es esta app; la directiva TurnOffWindowsCopilot ya no la alcanza
+    @{ Id='RemoveCopilot';       Pkg='Microsoft.Copilot_8wekyb3d8bbwe';                   Name='Copilot (app)';        Recommended=$false; Info='Asistente de IA; se puede volver a instalar desde Microsoft Store' }
     @{ Id='RemoveCortana';       Pkg='Microsoft.549981C3F5F10_8wekyb3d8bbwe';             Name='Cortana';              Recommended=$true;  Info='Asistente deprecated por MS' }
     @{ Id='RemoveGetHelp';       Pkg='Microsoft.GetHelp_8wekyb3d8bbwe';                   Name='Obtener ayuda';        Recommended=$true;  Info='App de soporte MS' }
     @{ Id='RemoveTips';          Pkg='Microsoft.Getstarted_8wekyb3d8bbwe';                Name='Consejos / Inicio';    Recommended=$true;  Info='Tutorial de bienvenida' }
@@ -57,12 +59,18 @@ function Get-EmiDebloatItems {
     # Pkg es un PackageFamilyName (Nombre_IdEditor) y Get-AppxPackage -Name solo
     # compara con Name: se lee la lista una vez y se filtra por familia.
     $allPkgs = @(Get-AppxPackage -ErrorAction SilentlyContinue)
+    $rev = Get-EmiAppxReversibility -Names @($allPkgs | ForEach-Object { [string]$_.Name })
     foreach ($app in $script:BloatApps) {
-        $installed = $null -ne (Find-EmiAppxByFamily -Packages $allPkgs -Family $app.Pkg)
+        $found = Find-EmiAppxByFamily -Packages $allPkgs -Family $app.Pkg
+        $installed = $null -ne $found
+        # Se avisa antes: sin otro usuario que la tenga, Windows borra sus archivos
+        $back = if (-not $installed) { ' [NO INSTALADA]' }
+                elseif ($rev[[string]$found.Name]) { '' }
+                else { ' [Revertir no la devuelve: solo desde Microsoft Store]' }
         $items += [pscustomobject]@{
             Id          = $app.Id
             Name        = $app.Name
-            Info        = "$($app.Info)$(if (-not $installed) { ' [NO INSTALADA]' })"
+            Info        = "$($app.Info)$back"
             Recommended = $app.Recommended
             Tag         = "APP|$($app.Pkg)"
             Category    = 'App'
@@ -143,6 +151,9 @@ function Invoke-EmiDebloatSet {
     $changes = 0
 
     foreach ($id in $Ids) {
+        # Cancelar cooperativo (Test-EmiCancel, rama de interfaz): solo entre
+        # elementos, nunca entre escribir un cambio y anotarlo
+        if ((Get-Command Test-EmiCancel -ErrorAction SilentlyContinue) -and (Test-EmiCancel)) { Write-EmiLog 'Cancelado: lo aplicado hasta aqui queda anotado y se puede deshacer.' Warn; break }
         $done++
         Set-EmiStatus "Aplicando debloat ($done/$total): $id" ([int](($done / $total) * 100))
         $changes += Invoke-EmiDebloatItem -Id $id
@@ -170,10 +181,14 @@ function Remove-EmiAppxPackage {
         return $false
     }
 
+    # Antes de quitarla: si ningun otro usuario la tiene, Windows borra sus
+    # archivos y Revertir no la puede devolver.
+    $canBack = [bool](Get-EmiAppxReversibility -Names @([string]$pkg.Name))[[string]$pkg.Name]
     try {
         # 2. Remover para usuario actual
         Remove-AppxPackage -Package $pkg.PackageFullName -ErrorAction Stop
         Write-EmiLog "$PackageFamilyName removida (usuario actual)." Ok
+        if (-not $canBack) { Write-EmiLog "$PackageFamilyName no se podra devolver desde Revertir: si la necesitas, reinstalala desde Microsoft Store." Warn }
 
         # 3. Remover provisioned package (evita reinstalacion en updates)
         $prov = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
@@ -185,12 +200,14 @@ function Remove-EmiAppxPackage {
 
         # 4. Journal: solo datos. Undo-EmiChanges lo vuelve a registrar con
         #    Add-AppxPackage -Register si el paquete sigue en disco (un
-        #    PackageFamilyName no es un id de winget).
+        #    PackageFamilyName no es un id de winget). Con Reversible=$false
+        #    el deshacer solo avisa y la entrada sale del diario.
         Add-EmiJournalEntry @{
             Kind              = 'Command'
             Action            = 'AppxReinstall'
             PackageName       = $pkg.Name
             PackageFamilyName = $pkg.PackageFamilyName
+            Reversible        = $canBack
             Module            = $Module
         }
 

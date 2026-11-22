@@ -7,10 +7,14 @@ $script:LogFile = $null
 $script:Journal = $null
 
 # ------------------------- Tipos para la UI --------------------------
-if (-not ('EmiItem' -as [type])) {
-Add-Type -Language CSharp -TypeDefinition @'
+# Un solo bloque de C# (antes eran dos Add-Type, dos compilaciones en cada
+# arranque). EmiToolkit.ps1 lee este texto con el AST antes de importar el
+# modulo y, si hay una copia compilada en %ProgramData%\EmiToolkit\cache con
+# el mismo hash, la carga y este Add-Type ya no se ejecuta.
+$script:EmiTypeSource = @'
 using System;
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 
 public class EmiItem : INotifyPropertyChanged
 {
@@ -45,13 +49,6 @@ public class EmiItem : INotifyPropertyChanged
     public bool Locked { get { return _locked; } set { _locked = value; Raise("Locked"); Raise("Editable"); } }
     public bool Editable { get { return !_locked; } }
 }
-'@
-}
-
-if (-not ('EmiNative' -as [type])) {
-Add-Type -Language CSharp -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
 
 public static class EmiNative
 {
@@ -69,6 +66,8 @@ public static class EmiNative
     public const int DWMWA_MICA_EFFECT             = 1029; // builds 22000
 }
 '@
+if (-not ('EmiItem' -as [type]) -or -not ('EmiNative' -as [type])) {
+    Add-Type -Language CSharp -TypeDefinition $script:EmiTypeSource
 }
 
 # --------------------------- Inicializacion --------------------------
@@ -792,62 +791,340 @@ function Clear-EmiJournal {
     }
 }
 
+# ------------------------------ Edicion ------------------------------
+# Muchas directivas solo surten efecto en algunas ediciones de Windows; en
+# las demas escribirlas es placebo. Cada uso cita su fuente.
+$script:EmiEdition = $null
+
+function ConvertTo-EmiEditionFamily {
+    <#  EditionID (HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion) a Home,
+        Pro, Enterprise, Education, SE, Server o Desconocida. Pro Education
+        cuenta como Pro: ninguna fuente confirma que admita lo de Education.
+        Enterprise multisesion (ServerRdsh), LTSC e IoT cuentan como Enterprise. #>
+    param([string] $EditionId)
+    switch -Regex ($EditionId) {
+        '^Core'                                   { return 'Home' }
+        '^CloudEdition'                           { return 'SE' }
+        '^Professional'                           { return 'Pro' }
+        '^Education'                              { return 'Education' }
+        '^(Enterprise|IoTEnterprise|ServerRdsh)'  { return 'Enterprise' }
+        '^Server'                                 { return 'Server' }
+    }
+    return 'Desconocida'
+}
+
+function Get-EmiWindowsEdition {
+    if (-not $script:EmiEdition) {
+        $id = $null
+        try { $id = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name 'EditionID' -ErrorAction Stop).EditionID } catch { }
+        $script:EmiEdition = [pscustomobject]@{ EditionId = [string]$id; Family = (ConvertTo-EmiEditionFamily ([string]$id)) }
+    }
+    return $script:EmiEdition
+}
+
+$script:EmiBuild = $null
+function Get-EmiWindowsBuild {
+    if ($null -eq $script:EmiBuild) {
+        $script:EmiBuild = 0
+        try { $script:EmiBuild = [int](Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name 'CurrentBuildNumber' -ErrorAction Stop).CurrentBuildNumber } catch { }
+    }
+    return $script:EmiBuild
+}
+
+function Test-EmiEditionApplies {
+    <#  Cierto si la edicion actual esta en $Editions (o si no se sabe cual
+        es). Con -What, si no aplica, lo deja en el log. #>
+    param([string[]] $Editions, [string] $What)
+    if (-not $Editions -or $Editions.Count -eq 0) { return $true }
+    $ed = Get-EmiWindowsEdition
+    if ($ed.Family -eq 'Desconocida' -or $Editions -contains $ed.Family) { return $true }
+    if ($What) { Write-EmiLog "$($What): sin efecto en tu edicion ($($ed.Family)); solo funciona en $($Editions -join ', '). No se cambia." Info }
+    return $false
+}
+
+function Get-EmiItemSkipReason {
+    <#  Por que un elemento del catalogo no hace nada en este equipo, o $null.
+        Editions: ediciones en las que funciona. MaxBuild: ultima compilacion
+        de Windows en la que existe (lo que Microsoft ya quito). #>
+    param([Parameter(Mandatory)] $Item)
+    $pe = $Item.PSObject.Properties['Editions']
+    if ($pe -and $pe.Value -and -not (Test-EmiEditionApplies -Editions @($pe.Value))) {
+        return "sin efecto en tu edicion: solo $(@($pe.Value) -join ', ')"
+    }
+    $pb = $Item.PSObject.Properties['MaxBuild']
+    if ($pb -and $pb.Value) {
+        $b = Get-EmiWindowsBuild
+        if ($b -gt [int]$pb.Value) { return "sin efecto en tu version de Windows (compilacion $b)" }
+    }
+    return $null
+}
+
+function Update-EmiCatalogForEdition {
+    <#  A lo que no hace nada en este equipo le anade el aviso al texto y lo
+        quita de lo recomendado. #>
+    param([object[]] $Items)
+    foreach ($it in $Items) {
+        $why = Get-EmiItemSkipReason -Item $it
+        if ($why) { $it.Info = [string]$it.Info + " [$why]"; $it.Recommended = $false }
+    }
+    return $Items
+}
+
+function Test-EmiItemApplies {
+    <#  Antes de aplicar un elemento: si no hace nada aqui, lo dice en el log
+        y devuelve $false (no se escribe nada a lo tonto). #>
+    param([Parameter(Mandatory)] $Item)
+    $why = Get-EmiItemSkipReason -Item $Item
+    if (-not $why) { return $true }
+    Write-EmiLog "$($Item.Name): $why. No se cambia nada." Info
+    return $false
+}
+
+# ---------------------------- Hibernacion ----------------------------
+
+function Disable-EmiHibernation {
+    <#  powercfg /hibernate off comprobando el resultado. Solo se anota si
+        estaba activa: deshacer no debe encenderla si ya estaba apagada. #>
+    param([string] $Module = 'Energia')
+    $hib = (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name 'HibernateEnabled' -ErrorAction SilentlyContinue).HibernateEnabled
+    if ($hib -eq 0) { Write-EmiLog 'La hibernacion ya estaba desactivada.' Ok; return $false }
+    & powercfg.exe /hibernate off 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-EmiLog "powercfg /hibernate off devolvio $LASTEXITCODE`: la hibernacion sigue activa." Warn
+        return $false
+    }
+    Add-EmiJournalEntry @{ Kind = 'Command'; Action = 'Hibernate'; Module = $Module }
+    Write-EmiLog 'Hibernacion desactivada (hiberfil.sys liberado).' Ok
+    return $true
+}
+
+# ------------------------- Plan de energia ---------------------------
+
+function Get-EmiPowerSchemeGuid { return $script:EmiPowerSchemeGuid }
+
+function Get-EmiActivePowerScheme {
+    <#  GUID del plan activo (powercfg /getactivescheme; el texto cambia de
+        idioma, el GUID no), o $null. #>
+    try {
+        $t = (& powercfg.exe /getactivescheme 2>$null) -join ' '
+        if ($LASTEXITCODE -eq 0 -and $t -match '([0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})') { return $Matches[1].ToLowerInvariant() }
+    } catch { }
+    return $null
+}
+
+# ------------------------------- AppX --------------------------------
+
+function Test-EmiAppxKeptOnDisk {
+    <#  Logica pura. Al quitar un paquete al usuario actual y su copia
+        aprovisionada, Windows borra sus archivos si ningun otro usuario lo
+        tiene instalado; solo si otro lo tiene se puede volver a registrar
+        desde Revertir. $UserInfo = PackageUserInformation de Get-AppxPackage
+        -AllUsers (UserSecurityId.Sid e InstallState). #>
+    param([object[]] $UserInfo, [string] $CurrentSid)
+    foreach ($u in @($UserInfo)) {
+        if (-not $u) { continue }
+        $id  = $u.UserSecurityId
+        $sid = if ($id -and $id.PSObject.Properties['Sid']) { [string]$id.Sid } else { [string]$id }
+        if ($sid -and $sid -ne $CurrentSid -and [string]$u.InstallState -eq 'Installed') { return $true }
+    }
+    return $false
+}
+
+function Get-EmiAppxReversibility {
+    <#  Para cada Name de paquete, si se podra volver a instalar desde Revertir
+        tras quitarlo. Una sola llamada a Get-AppxPackage -AllUsers (necesita
+        administrador); si falla, se da por no reversible. #>
+    param([string[]] $Names)
+    $out = @{}
+    foreach ($n in $Names) { $out[$n] = $false }
+    $sid = $null
+    try { $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value } catch { }
+    try {
+        foreach ($p in @(Get-AppxPackage -AllUsers -ErrorAction Stop)) {
+            if ($out.ContainsKey([string]$p.Name) -and (Test-EmiAppxKeptOnDisk -UserInfo @($p.PackageUserInformation) -CurrentSid $sid)) {
+                $out[[string]$p.Name] = $true
+            }
+        }
+    } catch { }
+    return $out
+}
+
 # ------------------------- Registro con undo -------------------------
 
+# Claves que Windows protege con UCPD (User Choice Protection Driver, desde
+# 2024): rechaza o ignora lo que escriba cualquier programa que no sea el
+# Explorador o Configuracion (oofhours, "What is Windows 11's new UCPD
+# feature", 2025; Techzine, 2024). Solo se reconoce para explicar el aviso.
+$script:UcpdPathHint = '\\(UserChoice|UserChoiceLatest)$'
+$script:UcpdNameHint = @('TaskbarDa')
+
+function ConvertTo-EmiRegValueName {
+    param([string] $Name)
+    if ($Name -eq '(default)') { return '' }
+    return $Name
+}
+
+function Get-EmiRegParent {
+    param([string] $Path)
+    $i = $Path.LastIndexOf('\')
+    if ($i -lt 0) { return $null }
+    return $Path.Substring(0, $i)
+}
+
+function Get-EmiRegDepth { param([string] $Path) return @($Path.TrimEnd('\') -split '\\').Count }
+
+function Get-EmiRegState {
+    <#  Estado de un valor, sin expandir %variables%: un REG_EXPAND_SZ se lee
+        tal cual esta guardado. Get-ItemProperty lo devolvia ya expandido y el
+        deshacer escribia la ruta literal (auditoria del nucleo, n.11). #>
+    param([Parameter(Mandatory)][string] $Path, [Parameter(Mandatory)][string] $Name)
+    $st = [pscustomobject]@{ KeyExists = $false; Exists = $false; Value = $null; Kind = $null }
+    if (-not (Test-Path -LiteralPath $Path)) { return $st }
+    $st.KeyExists = $true
+    $key = Get-Item -LiteralPath $Path -ErrorAction Stop
+    $vn  = ConvertTo-EmiRegValueName $Name
+    if (@($key.GetValueNames()) -contains $vn) {
+        $st.Exists = $true
+        $st.Value  = $key.GetValue($vn, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        try { $st.Kind = $key.GetValueKind($vn).ToString() } catch { $st.Kind = 'Unknown' }
+    }
+    return $st
+}
+
+function New-EmiRegKey {
+    <#  Crea la clave y devuelve la mas alta de las que no existian (la que el
+        deshacer quitara si queda vacia), o $null si ya existia. Nunca sube por
+        encima de cuatro niveles (HKCU:\SOFTWARE\Policies\Microsoft). #>
+    param([Parameter(Mandatory)][string] $Path)
+    if (Test-Path -LiteralPath $Path) { return $null }
+    $top    = $Path
+    $parent = Get-EmiRegParent $Path
+    while ($parent -and (Get-EmiRegDepth $parent) -ge 4 -and -not (Test-Path -LiteralPath $parent)) {
+        $top = $parent
+        $parent = Get-EmiRegParent $parent
+    }
+    New-Item -Path $Path -Force -ErrorAction Stop | Out-Null
+    return $top
+}
+
+function Remove-EmiRegKeyIfEmpty {
+    <#  Borra la clave solo si no tiene valores ni subclaves. #>
+    param([Parameter(Mandatory)][string] $Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+    $k = Get-Item -LiteralPath $Path -ErrorAction Stop
+    if ($k.SubKeyCount -gt 0 -or $k.ValueCount -gt 0) { return $false }
+    Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+    return $true
+}
+
+function Remove-EmiCreatedRegKeys {
+    <#  Quita, de la mas profunda a $Top, las claves que creo la herramienta,
+        y se para en la primera que tenga algo (lo puso otro programa). #>
+    param([Parameter(Mandatory)][string] $Path, [Parameter(Mandatory)][string] $Top)
+    if (-not ($Path -ieq $Top -or $Path.StartsWith($Top + '\', [StringComparison]::OrdinalIgnoreCase))) { return }
+    $p = $Path
+    while ($p) {
+        if (-not (Remove-EmiRegKeyIfEmpty $p)) {
+            Write-EmiLog "La clave $p tiene otros datos: se deja." Info
+            return
+        }
+        if ($p -ieq $Top) { return }
+        $p = Get-EmiRegParent $p
+        if (-not $p -or $p.Length -lt $Top.Length) { return }
+    }
+}
+
+function Test-EmiSameRegValue {
+    param($A, $B)
+    return ("$A" -ceq "$B")
+}
+
 function Set-EmiRegistry {
-    <#  Escribe un valor guardando el estado anterior en el diario. #>
+    <#  Escribe un valor y lo anota en el diario con su estado anterior.
+        - Se lee y se compara sin expandir variables (REG_EXPAND_SZ).
+        - Si la clave no existia, se anota cual se creo: el deshacer la quita
+          (solo si queda vacia).
+        - Despues de escribir se vuelve a leer: si Windows lo bloqueo (UCPD en
+          TaskbarDa y en las claves de predeterminados) se avisa y no se anota
+          un cambio que no ocurrio.
+        - Se anota despues de escribir; si no se puede anotar, se deja como
+          estaba (un cambio sin entrada no se podria deshacer). #>
     param(
         [Parameter(Mandatory)][string] $Path,
         [Parameter(Mandatory)][string] $Name,
-        [Parameter(Mandatory)]$Value,
+        [Parameter(Mandatory)][AllowEmptyString()]$Value,
         [ValidateSet('DWord', 'QWord', 'String', 'ExpandString', 'MultiString', 'Binary')]
         [string] $Type = 'DWord',
         [string] $Module = 'General'
     )
 
+    $created = $null
+    $ucpd = ($Path -match $script:UcpdPathHint -or $script:UcpdNameHint -contains $Name)
+    $ucpdText = if ($ucpd) { ' Windows protege este ajuste (UCPD) y solo deja cambiarlo desde Configuracion.' } else { '' }
     try {
-        $existed  = $false
-        $oldValue = $null
-        $oldType  = $null
+        $before = Get-EmiRegState -Path $Path -Name $Name
+        if ($before.Exists -and (Test-EmiSameRegValue $before.Value $Value) -and
+            (-not $before.Kind -or $before.Kind -eq $Type)) { return $false }   # ya estaba
 
-        if (Test-Path -LiteralPath $Path) {
-            $prop = Get-ItemProperty -LiteralPath $Path -Name $Name -ErrorAction SilentlyContinue
-            if ($null -ne $prop -and $prop.PSObject.Properties.Name -contains $Name) {
-                $existed  = $true
-                $oldValue = $prop.$Name
-                try {
-                    $key = Get-Item -LiteralPath $Path
-                    $oldType = $key.GetValueKind($Name).ToString()
-                } catch { $oldType = $Type }
-            }
-        } else {
-            New-Item -Path $Path -Force -ErrorAction Stop | Out-Null
-        }
-
-        if ($existed -and ("$oldValue" -eq "$Value")) { return $false }   # ya estaba
-
-        Add-EmiJournalEntry @{
-            Kind    = 'Registry'
-            Path    = $Path
-            Name    = $Name
-            Existed = $existed
-            OldValue = $oldValue
-            OldType  = $oldType
-            NewValue = $Value
-            Module   = $Module
-        }
-
+        if (-not $before.KeyExists) { $created = New-EmiRegKey -Path $Path }
         New-ItemProperty -LiteralPath $Path -Name $Name -Value $Value -PropertyType $Type -Force -ErrorAction Stop | Out-Null
+
+        $after = Get-EmiRegState -Path $Path -Name $Name
+        if (-not $after.Exists -or -not (Test-EmiSameRegValue $after.Value $Value)) {
+            if ($after.Exists -eq $before.Exists -and (Test-EmiSameRegValue $after.Value $before.Value)) {
+                Write-EmiLog "Windows no dejo cambiar $Path\$Name (al releerlo sigue como estaba).$ucpdText No se anota en el diario." Warn
+                if ($created) { try { Remove-EmiCreatedRegKeys -Path $Path -Top $created } catch { } }
+                return $false
+            }
+            Write-EmiLog "$Path\$Name quedo con otro valor ('$($after.Value)'), no con '$Value'." Warn
+        }
+
+        try {
+            Add-EmiJournalEntry @{
+                Kind       = 'Registry'
+                Path       = $Path
+                Name       = $Name
+                Existed    = [bool]$before.Exists
+                OldValue   = $before.Value
+                OldType    = $before.Kind
+                NewValue   = $Value
+                KeyCreated = $created
+                Module     = $Module
+            }
+        } catch {
+            Write-EmiLog "No se pudo anotar $Path\$Name en el diario ($($_.Exception.Message)): se deja como estaba." Warn
+            try {
+                if ($before.Exists) {
+                    New-ItemProperty -LiteralPath $Path -Name $Name -Value $before.Value -PropertyType $before.Kind -Force -ErrorAction Stop | Out-Null
+                } else {
+                    Remove-ItemProperty -LiteralPath $Path -Name $Name -Force -ErrorAction Stop
+                    if ($created) { Remove-EmiCreatedRegKeys -Path $Path -Top $created }
+                }
+            } catch { Write-EmiLog "Tampoco se pudo devolver $Path\$Name a su valor anterior: $($_.Exception.Message)" Warn }
+            return $false
+        }
         return $true
     }
     catch {
-        Write-EmiLog "No se pudo escribir $Path\$Name : $($_.Exception.Message)" Warn
+        Write-EmiLog "No se pudo escribir $Path\$Name : $($_.Exception.Message).$ucpdText" Warn
+        if ($created) { try { Remove-EmiCreatedRegKeys -Path $Path -Top $created } catch { } }
         return $false
     }
 }
 
+function Get-EmiServiceDelayed {
+    <#  Win32_Service.StartMode dice 'Auto' tambien para "Automatico (inicio
+        retrasado)"; el retraso esta en el valor DelayedAutostart del servicio. #>
+    param([Parameter(Mandatory)][string] $Name)
+    try {
+        $v = (Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$Name" -Name 'DelayedAutostart' -ErrorAction Stop).DelayedAutostart
+        return ($v -eq 1)
+    } catch { return $false }
+}
+
 function Set-EmiService {
-    <#  Detiene y cambia el arranque de un servicio, guardando el estado. #>
+    <#  Detiene y cambia el arranque de un servicio, guardando el estado
+        (tambien si arrancaba con retraso). Si ya estaba asi, no anota nada. #>
     param(
         [Parameter(Mandatory)][string] $Name,
         [ValidateSet('Disabled', 'Manual', 'Automatic')][string] $StartupType = 'Disabled',
@@ -858,23 +1135,31 @@ function Set-EmiService {
     $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
     if (-not $svc) { return $false }
 
+    $running = ([string]$svc.Status -eq 'Running')
+    $stopped = $false
     try {
-        $wmi = Get-CimInstance Win32_Service -Filter "Name='$Name'" -ErrorAction SilentlyContinue
-        $old = if ($wmi) { $wmi.StartMode } else { 'Unknown' }
+        $wmi  = Get-CimInstance Win32_Service -Filter "Name='$Name'" -ErrorAction SilentlyContinue
+        $old  = if ($wmi) { [string]$wmi.StartMode } else { 'Unknown' }
+        $want = @{ Disabled = 'Disabled'; Manual = 'Manual'; Automatic = 'Auto' }[$StartupType]
+        if ($old -eq $want -and -not ($Stop -and $running)) { return $false }   # ya estaba
+        $delayed = ($old -eq 'Auto' -and (Get-EmiServiceDelayed -Name $Name))
+
+        if ($Stop -and $running) {
+            Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue
+            $stopped = $true
+        }
+        if ($old -ne $want) { Set-Service -Name $Name -StartupType $StartupType -ErrorAction Stop }
 
         Add-EmiJournalEntry @{
-            Kind = 'Service'; Name = $Name; OldStartMode = $old
-            OldStatus = $svc.Status.ToString(); Module = $Module
+            Kind = 'Service'; Name = $Name; OldStartMode = $old; OldDelayed = [bool]$delayed
+            OldStatus = [string]$svc.Status; Module = $Module
         }
-
-        if ($Stop -and $svc.Status -eq 'Running') {
-            Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue
-        }
-        Set-Service -Name $Name -StartupType $StartupType -ErrorAction Stop
         return $true
     }
     catch {
         Write-EmiLog "Servicio '$Name': $($_.Exception.Message)" Warn
+        # Sin entrada en el diario: se vuelve a arrancar si se paro
+        if ($stopped) { try { Start-Service -Name $Name -ErrorAction SilentlyContinue } catch { } }
         return $false
     }
 }
@@ -939,7 +1224,9 @@ $script:UndoRegistryAllow = @(
     '^HKCU:\\SOFTWARE\\Policies\\Microsoft\\Windows\\(WindowsCopilot|Explorer)$'
     '^HKCU:\\System\\GameConfigStore$'
     '^HKCU:\\Control Panel\\(Mouse|Accessibility\\StickyKeys)$'
-    '^HKCU:\\SOFTWARE\\Classes\\CLSID\\\{(0DB7E03F-FC29-4DC6-9020-FF41B59E513A|f874310e-b6b7-47dc-bc84-b9e6b38f5903|018D5C66-4533-4307-9B53-224DE2ED1FE6)\}$'
+    # Galeria (e88865ea, el de ahora; 0DB7E03F era el de Objetos 3D y queda
+    # para entradas antiguas), Inicio y OneDrive del panel del Explorador
+    '^HKCU:\\SOFTWARE\\Classes\\CLSID\\\{(e88865ea-0e1c-4e20-9aa6-edcd0212c87c|0DB7E03F-FC29-4DC6-9020-FF41B59E513A|f874310e-b6b7-47dc-bc84-b9e6b38f5903|018D5C66-4533-4307-9B53-224DE2ED1FE6)\}$'
 )
 # Claves donde una escritura equivale a ejecutar codigo: nunca, venga de donde venga
 $script:UndoRegistryDeny = '\\(Image File Execution Options|SilentProcessExit|Winlogon|AppInit_DLLs|AppCertDlls|KnownDLLs|Lsa|Services|RunOnce|RunOnceEx|Policies\\Explorer\\Run|Terminal Server|Print\\Monitors|Command Processor|Shell Folders|Environment)(\\|$)'
@@ -956,6 +1243,11 @@ $script:UndoSensitiveServices = @('RemoteRegistry', 'RemoteAccess')
 $script:UndoFirewallGroups   = @('EmiToolkit', 'ESET KB332')
 $script:UndoFirewallPrefixes = @('EmiToolkit - ', 'ESET KB332 - ')
 $script:UndoFeatures = @('Containers-DisposableClientVM', 'Microsoft-Windows-Subsystem-Linux', 'Internet-Explorer-Optional-amd64', 'WindowsMediaPlayer')
+$script:GuidRx = '^\{?[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}?$'
+# Copia de Alto rendimiento que crea la herramienta (siempre con este GUID,
+# para no duplicar el plan en cada ejecucion)
+$script:EmiPowerSchemeGuid = '6e3b7c2a-4f1d-4c8e-9a51-0b2d7e9f4a13'
+$script:UndoTcpLevels = @('normal', 'disabled', 'restricted', 'highlyrestricted', 'experimental')
 $script:UndoEnvVars  = @('AZURE_CORE_COLLECT_TELEMETRY', 'DOTNET_CLI_TELEMETRY_OPTOUT', 'BICEP_TELEMETRY_OPTOUT', 'POWERSHELL_TELEMETRY_OPTOUT', 'NUGET_TELEMETRY_OPTOUT')
 
 function ConvertTo-EmiRegistryPath {
@@ -1006,6 +1298,16 @@ function Test-EmiUndoEntry {
             if ($p -match '^HKCU:\\SOFTWARE\\Classes\\CLSID\\' -and $n -ne 'System.IsPinnedToNameSpaceTree' -and $n -ne '(default)') { $ok = $false }
             if ($p -match '\\WMI\\Autologger\\' -and $n -ne 'Start') { $ok = $false }
             if (-not $ok) { return "la herramienta no escribe en $p" }
+            if ($names -contains 'KeyCreated' -and $e.KeyCreated) {
+                # Solo una clave que contiene a la del valor, y nunca por encima de
+                # cuatro niveles; el deshacer solo la borra si queda vacia.
+                $kc = ConvertTo-EmiRegistryPath ([string]$e.KeyCreated)
+                if (-not $kc) { return "clave creada no valida: $($e.KeyCreated)" }
+                if ($e.Existed) { return 'una clave creada no puede tener un valor que ya existia' }
+                if (-not ($p -ieq $kc -or $p.StartsWith($kc + '\', [StringComparison]::OrdinalIgnoreCase))) { return "la clave creada $kc no contiene $p" }
+                if ((Get-EmiRegDepth $kc) -lt 4) { return "clave demasiado general para borrarla: $kc" }
+                if ($kc -match $script:UndoRegistryDeny) { return "clave protegida: $kc" }
+            }
             if ($e.Existed -and $e.OldType -and [string]$e.OldType -notin @('DWord', 'QWord', 'String', 'ExpandString', 'MultiString', 'Binary', 'Unknown')) {
                 return "tipo de valor no admitido: $($e.OldType)"
             }
@@ -1049,6 +1351,12 @@ function Test-EmiUndoEntry {
             $c = ConvertTo-EmiUndoCommand $e
             switch ([string]$c.Action) {
                 'AppxReinstall'  { if ([string]$c.PackageName -notmatch '^[A-Za-z0-9][A-Za-z0-9.\-]{1,127}$') { return "paquete no valido: $($c.PackageName)" } }
+                'ReservedStorage' { if ([string]$c.OldState -ne 'Enabled') { return "estado de almacenamiento reservado no valido: $($c.OldState)" } }
+                'PowerScheme' {
+                    if ([string]$c.OldGuid -notmatch $script:GuidRx) { return "plan de energia no valido: $($c.OldGuid)" }
+                    if ($c.CreatedGuid -and [string]$c.CreatedGuid -ne $script:EmiPowerSchemeGuid) { return "la herramienta no crea el plan $($c.CreatedGuid)" }
+                }
+                'TcpAutotuning' { if ($script:UndoTcpLevels -notcontains [string]$c.OldLevel) { return "nivel de autotuning no valido: $($c.OldLevel)" } }
                 'WindowsFeature' { if ($script:UndoFeatures -notcontains [string]$c.Feature) { return "caracteristica no gestionada: $($c.Feature)" } }
                 'EnvVars' {
                     if ($c.Scope -and [string]$c.Scope -ne 'User') { return "solo variables de usuario, no $($c.Scope)" }
@@ -1085,8 +1393,16 @@ function Invoke-EmiUndoEntry {
                 $rp = ConvertTo-EmiRegistryPath ([string]$e.Path)
                 if (-not (Test-Path -LiteralPath $rp)) { New-Item -Path $rp -Force -ErrorAction Stop | Out-Null }
                 New-ItemProperty -LiteralPath $rp -Name $e.Name -Value $val -PropertyType $t -Force -ErrorAction Stop | Out-Null
-            } elseif (Test-Path -LiteralPath (ConvertTo-EmiRegistryPath ([string]$e.Path))) {
-                Remove-ItemProperty -LiteralPath (ConvertTo-EmiRegistryPath ([string]$e.Path)) -Name $e.Name -Force -ErrorAction SilentlyContinue
+            } else {
+                $rp = ConvertTo-EmiRegistryPath ([string]$e.Path)
+                if (Test-Path -LiteralPath $rp) {
+                    Remove-ItemProperty -LiteralPath $rp -Name $e.Name -Force -ErrorAction SilentlyContinue
+                }
+                # La clave la creo la herramienta: fuera, si nadie mas la usa
+                $names = @($e.PSObject.Properties | ForEach-Object { $_.Name })
+                if ($names -contains 'KeyCreated' -and $e.KeyCreated) {
+                    Remove-EmiCreatedRegKeys -Path $rp -Top (ConvertTo-EmiRegistryPath ([string]$e.KeyCreated))
+                }
             }
             return 'Reverted'
         }
@@ -1097,7 +1413,12 @@ function Invoke-EmiUndoEntry {
                 Write-EmiLog "Servicio '$($e.Name)': no se sabe como arrancaba antes ($($e.OldStartMode))." Warn
                 return 'Irreversible'
             }
-            if ($st) { Set-Service -Name $e.Name -StartupType $st -ErrorAction Stop }
+            if ($st -eq 'Automatic' -and $e.OldDelayed -eq $true) {
+                # Windows PowerShell 5.1 no tiene -StartupType AutomaticDelayedStart
+                & sc.exe config ([string]$e.Name) start= delayed-auto | Out-Null
+                if ($LASTEXITCODE -ne 0) { Write-EmiLog "sc config $($e.Name) start= delayed-auto devolvio $LASTEXITCODE." Warn; return 'Failed' }
+            }
+            elseif ($st) { Set-Service -Name $e.Name -StartupType $st -ErrorAction Stop }
             if ($e.OldStatus -eq 'Running' -and $script:UndoSensitiveServices -notcontains [string]$e.Name) {
                 Start-Service -Name $e.Name -ErrorAction Stop
             }
@@ -1139,6 +1460,11 @@ function Invoke-EmiUndoEntry {
             $c = ConvertTo-EmiUndoCommand $e
             switch ([string]$c.Action) {
                 'AppxReinstall' {
+                    $store = "ms-windows-store://search/?query=$($c.PackageName)"
+                    if ($c.PSObject.Properties['Reversible'] -and $c.Reversible -eq $false) {
+                        Write-EmiLog "$($c.PackageName) no se puede volver a instalar desde aqui (se borro del equipo al quitarla); reinstalala desde Microsoft Store ($store)." Warn
+                        return 'Irreversible'
+                    }
                     # Solo se puede volver a registrar si el paquete sigue en disco
                     # (instalado para otro usuario o aun en WindowsApps).
                     $src = Get-AppxPackage -AllUsers -Name $c.PackageName -ErrorAction SilentlyContinue |
@@ -1146,8 +1472,10 @@ function Invoke-EmiUndoEntry {
                                           (Test-Path -LiteralPath (Join-Path $_.InstallLocation 'AppxManifest.xml')) } |
                            Select-Object -First 1
                     if (-not $src) {
-                        Write-EmiLog "$($c.PackageName) ya no esta en el equipo; reinstalala desde Microsoft Store (ms-windows-store://search/?query=$($c.PackageName))." Warn
-                        return 'Failed'
+                        # No volvera por si solo: se retira del diario en vez de
+                        # fallar en cada Revertir
+                        Write-EmiLog "$($c.PackageName) ya no esta en el equipo; reinstalala desde Microsoft Store ($store)." Warn
+                        return 'Irreversible'
                     }
                     Add-AppxPackage -Register (Join-Path $src.InstallLocation 'AppxManifest.xml') -DisableDevelopmentMode -ErrorAction Stop
                     return 'Reverted'
@@ -1163,6 +1491,28 @@ function Invoke-EmiUndoEntry {
                 'Hibernate' {
                     & powercfg.exe /hibernate on 2>&1 | Out-Null
                     if ($LASTEXITCODE -ne 0) { Write-EmiLog "powercfg /hibernate on devolvio $LASTEXITCODE." Warn; return 'Failed' }
+                    return 'Reverted'
+                }
+                'ReservedStorage' {
+                    if (Get-Command Set-WindowsReservedStorageState -ErrorAction SilentlyContinue) {
+                        Set-WindowsReservedStorageState -State Enabled -ErrorAction Stop | Out-Null
+                    } else {
+                        & dism.exe /Online /Set-ReservedStorageState /State:Enabled /NoRestart 2>&1 | Out-Null
+                        if ($LASTEXITCODE -ne 0) { Write-EmiLog "DISM no pudo reactivar el almacenamiento reservado (codigo $LASTEXITCODE)." Warn; return 'Failed' }
+                    }
+                    return 'Reverted'
+                }
+                'PowerScheme' {
+                    & powercfg.exe /setactive ([string]$c.OldGuid) 2>&1 | Out-Null
+                    if ($LASTEXITCODE -ne 0) { Write-EmiLog "powercfg /setactive $($c.OldGuid) devolvio $LASTEXITCODE." Warn; return 'Failed' }
+                    if ($c.CreatedGuid -and [string]$c.CreatedGuid -ne [string]$c.OldGuid) {
+                        & powercfg.exe /delete ([string]$c.CreatedGuid) 2>&1 | Out-Null
+                    }
+                    return 'Reverted'
+                }
+                'TcpAutotuning' {
+                    & netsh.exe int tcp set global ("autotuninglevel=" + [string]$c.OldLevel) 2>&1 | Out-Null
+                    if ($LASTEXITCODE -ne 0) { Write-EmiLog "netsh autotuninglevel=$($c.OldLevel) devolvio $LASTEXITCODE." Warn; return 'Failed' }
                     return 'Reverted'
                 }
                 'EnvVars' {
@@ -1240,14 +1590,66 @@ function Undo-EmiChanges {
 
 # --------------------------- Punto de restauracion -------------------
 
+function Get-EmiFreeBytes {
+    param([string] $Root)
+    try { return [long](New-Object IO.DriveInfo $Root).AvailableFreeSpace } catch { return $null }
+}
+
+function Get-EmiRestoreReadiness {
+    <#  Si se puede crear un punto de restauracion: directiva que lo prohibe,
+        espacio libre en la unidad del sistema y espacio reservado para los
+        puntos (Win32_ShadowStorage). Devuelve Ok y, si no, Reason. #>
+    $r = [pscustomobject]@{ Ok = $true; Reason = $null; Note = $null }
+    $pol = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\SystemRestore' -ErrorAction SilentlyContinue
+    if ($pol -and ($pol.PSObject.Properties['DisableSR'] -and $pol.DisableSR -eq 1)) {
+        $r.Ok = $false; $r.Reason = 'Restaurar sistema esta desactivado por una directiva de tu organizacion'; return $r
+    }
+    $free = Get-EmiFreeBytes "$env:SystemDrive\"
+    if ($null -ne $free -and $free -lt 1GB) {
+        $r.Ok = $false; $r.Reason = "solo quedan $(Format-EmiSize $free) libres en $env:SystemDrive (hace falta al menos 1 GB)"; return $r
+    }
+    try {
+        $vol = Get-CimInstance Win32_Volume -Filter "DriveLetter='$env:SystemDrive'" -ErrorAction Stop | Select-Object -First 1
+        $g   = if ($vol -and [string]$vol.DeviceID -match '(\{[0-9A-Fa-f-]+\})') { $Matches[1] } else { $null }
+        $ss  = if ($g) { @(Get-CimInstance Win32_ShadowStorage -ErrorAction Stop | Where-Object { ([string]$_.Volume).Contains($g) }) | Select-Object -First 1 } else { $null }
+        if ($ss -and [long]$ss.MaxSpace -gt 0 -and [long]$ss.MaxSpace -lt 1GB) {
+            $r.Note = "el espacio reservado para puntos de restauracion es muy pequeno ($(Format-EmiSize ([long]$ss.MaxSpace))): Windows puede borrar los anteriores o no crear este"
+        }
+    } catch { }
+    return $r
+}
+
 function New-EmiRestorePoint {
-    param([string] $Description = 'EmiToolkit - antes de optimizar')
+    <#  Crea un punto de restauracion y comprueba que existe. Antes mira si se
+        puede (directiva, espacio) y lo dice claro si no; si la proteccion del
+        sistema estaba apagada en la unidad del sistema, la enciende y lo dice. #>
+    param([string] $Description = "Another's Toolbox - antes de optimizar")
     $key  = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore'
     $name = 'SystemRestorePointCreationFrequency'
     $had  = $false; $old = $null; $changed = $false
     try {
         Set-EmiStatus 'Creando punto de restauracion...'
         Write-EmiLog 'Creando punto de restauracion del sistema...' Step
+
+        $ready = Get-EmiRestoreReadiness
+        if (-not $ready.Ok) {
+            Write-EmiLog "No se crea el punto de restauracion: $($ready.Reason)." Warn
+            return $false
+        }
+        if ($ready.Note) { Write-EmiLog "Punto de restauracion: $($ready.Note)." Warn }
+
+        $before = $null
+        try { $before = @(Get-ComputerRestorePoint -ErrorAction Stop) | Sort-Object SequenceNumber | Select-Object -Last 1 } catch { }
+        if ($null -eq $before) {
+            # Sin puntos (o sin poder leerlos) suele ser que la proteccion esta apagada
+            try {
+                Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop
+                Write-EmiLog "Se activo la proteccion del sistema en $env:SystemDrive (estaba apagada o sin puntos). Se puede apagar en Propiedades del sistema > Proteccion del sistema." Info
+            } catch {
+                Write-EmiLog "No se crea el punto de restauracion: la proteccion del sistema esta apagada en $env:SystemDrive y no se pudo activar ($($_.Exception.Message))." Warn
+                return $false
+            }
+        }
 
         # Windows limita a 1 punto cada 24h; se quita ese limite solo mientras
         # se crea el punto y se deja como estaba (finally), exista o no antes.
@@ -1256,8 +1658,15 @@ function New-EmiRestorePoint {
         New-ItemProperty -Path $key -Name $name -Value 0 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
         $changed = $true
 
-        Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction SilentlyContinue
         Checkpoint-Computer -Description $Description -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
+
+        # Checkpoint-Computer puede volver sin error y sin crear nada: se comprueba
+        $after = $null
+        try { $after = @(Get-ComputerRestorePoint -ErrorAction Stop) | Sort-Object SequenceNumber | Select-Object -Last 1 } catch { }
+        if (-not $after -or ($before -and $after.SequenceNumber -le $before.SequenceNumber)) {
+            Write-EmiLog 'Windows no creo el punto de restauracion (revisa el espacio de Proteccion del sistema). No hay punto de antes de estos cambios.' Warn
+            return $false
+        }
         Write-EmiLog 'Punto de restauracion creado.' Ok
         return $true
     }

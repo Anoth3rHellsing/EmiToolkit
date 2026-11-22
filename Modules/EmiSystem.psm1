@@ -77,6 +77,13 @@ function Set-EmiZenDefault {
     $after = Get-EmiZenInfo
     if ($after.IsDefault) {
         Write-EmiLog 'Zen es ahora el navegador predeterminado.' Ok
+        # Windows no deja que un programa vuelva a elegir el navegador (UserChoice
+        # lleva un hash y UCPD lo protege): Revertir solo puede decir cual era.
+        $prev = ([string]$zen.CurrentDefault) -replace '[^A-Za-z0-9._\-]', ''
+        $hint = if ($prev) { "el navegador predeterminado era $prev; vuelve a elegirlo en Configuracion > Aplicaciones > Aplicaciones predeterminadas" }
+                else { 'no se pudo leer cual era el navegador anterior; eligelo en Configuracion > Aplicaciones > Aplicaciones predeterminadas' }
+        Add-EmiJournalEntry @{ Kind='Command'; Action='Manual'; Hint=$hint; Module='Navegador' }
+        Write-EmiLog "Esto no se puede deshacer automaticamente: $hint." Warn
         return 'Done'
     }
 
@@ -107,21 +114,21 @@ function Get-EmiFastStartup {
 function Disable-EmiFastStartup {
     param([switch] $AlsoDisableHibernation)
 
+    $ok = $false
     $st = Get-EmiFastStartup
     if (-not $st.Enabled) {
         Write-EmiLog 'El inicio rapido ya estaba desactivado.' Ok
-        return $false
+    } else {
+        $ok = Set-EmiRegistry 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' `
+                              'HiberbootEnabled' 0 DWord 'Energia'
+        if ($ok) { Write-EmiLog 'Inicio rapido desactivado (el equipo se apagara de verdad).' Ok }
     }
 
-    $ok = Set-EmiRegistry 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' `
-                          'HiberbootEnabled' 0 DWord 'Energia'
-    if ($ok) { Write-EmiLog 'Inicio rapido desactivado (el equipo se apagara de verdad).' Ok }
-
+    # La casilla se respeta aunque el inicio rapido ya estuviera apagado, y la
+    # hibernacion se anota en el diario (EmiCore, Disable-EmiHibernation).
     if ($AlsoDisableHibernation) {
-        try {
-            & powercfg.exe /hibernate off | Out-Null
-            Write-EmiLog 'Hibernacion desactivada: hiberfil.sys liberado.' Ok
-        } catch { Write-EmiLog "Hibernacion: $($_.Exception.Message)" Warn }
+        try { if (Disable-EmiHibernation -Module 'Energia') { $ok = $true } }
+        catch { Write-EmiLog "Hibernacion: $($_.Exception.Message)" Warn }
     }
     return $ok
 }

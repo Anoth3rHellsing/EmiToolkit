@@ -1,7 +1,7 @@
 ﻿<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="Another's Toolbox" Height="760" Width="1180" MinHeight="620" MinWidth="980"
+        Title="Another's Toolbox" Height="760" Width="1180" MinHeight="520" MinWidth="860"
         WindowStartupLocation="CenterScreen" Background="Transparent"
         WindowStyle="None" AllowsTransparency="False"
         FontFamily="Segoe UI" TextOptions.TextFormattingMode="Ideal"
@@ -51,30 +51,30 @@
 
     <LinearGradientBrush x:Key="GlossBlue" StartPoint="0,0" EndPoint="0,1">
       <GradientStop Color="#FF8FD9F7" Offset="0"/>
-      <GradientStop Color="#FF39A5DC" Offset="0.49"/>
-      <GradientStop Color="#FF1B7FC0" Offset="0.51"/>
-      <GradientStop Color="#FF39B0E4" Offset="1"/>
+      <GradientStop Color="#FF1C74AE" Offset="0.49"/>
+      <GradientStop Color="#FF145F94" Offset="0.51"/>
+      <GradientStop Color="#FF1A6CA6" Offset="1"/>
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="GlossGreen" StartPoint="0,0" EndPoint="0,1">
       <GradientStop Color="#FFCBF08F" Offset="0"/>
-      <GradientStop Color="#FF74C23C" Offset="0.49"/>
-      <GradientStop Color="#FF4E9C22" Offset="0.51"/>
-      <GradientStop Color="#FF7FCF43" Offset="1"/>
+      <GradientStop Color="#FF3B7A1C" Offset="0.49"/>
+      <GradientStop Color="#FF2E6B12" Offset="0.51"/>
+      <GradientStop Color="#FF377519" Offset="1"/>
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="GlossAmber" StartPoint="0,0" EndPoint="0,1">
       <GradientStop Color="#FFFFE6A8" Offset="0"/>
-      <GradientStop Color="#FFF0A93A" Offset="0.49"/>
-      <GradientStop Color="#FFD5871B" Offset="0.51"/>
-      <GradientStop Color="#FFF7B950" Offset="1"/>
+      <GradientStop Color="#FF9A5800" Offset="0.49"/>
+      <GradientStop Color="#FF874D00" Offset="0.51"/>
+      <GradientStop Color="#FF985700" Offset="1"/>
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="GlossRed" StartPoint="0,0" EndPoint="0,1">
       <GradientStop Color="#FFFFB6A6" Offset="0"/>
-      <GradientStop Color="#FFDD5C3E" Offset="0.49"/>
-      <GradientStop Color="#FFB63B22" Offset="0.51"/>
-      <GradientStop Color="#FFE0704F" Offset="1"/>
+      <GradientStop Color="#FFB83E26" Offset="0.49"/>
+      <GradientStop Color="#FFA3341D" Offset="0.51"/>
+      <GradientStop Color="#FFB5402A" Offset="1"/>
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="Shine" StartPoint="0,0" EndPoint="0,1">
@@ -120,7 +120,9 @@
     <DropShadowEffect x:Key="SoftShadow" BlurRadius="16" ShadowDepth="2"
                       Direction="270" Opacity="0.28" Color="#FF0A3A56"/>
 
-    <!-- ========================= BOTON BRILLANTE ====================== -->
+    <!-- ========================= BOTON BRILLANTE ======================
+         Texto blanco >= 4,5:1 en la mitad inferior del degradado (contrast.py).
+         Foco de teclado: anillo doble, blanco dentro y Deep fuera (>= 3:1). -->
     <Style x:Key="Gloss" TargetType="Button">
       <Setter Property="Foreground" Value="White"/>
       <Setter Property="FontSize" Value="14"/>
@@ -140,7 +142,7 @@
                 <Grid>
                   <Border CornerRadius="8,8,14,14" Margin="1,1,1,0" VerticalAlignment="Top"
                           Height="17" Background="{StaticResource Shine}"/>
-                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                  <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Margin="{TemplateBinding Padding}"/>
                 </Grid>
               </Border>
@@ -151,8 +153,10 @@
                 <Setter TargetName="bd" Property="BorderBrush" Value="#B3FFFFFF"/>
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="White"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
+                <Setter TargetName="glow" Property="BorderBrush" Value="{StaticResource Deep}"/>
+                <Setter TargetName="glow" Property="BorderThickness" Value="2"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="bd" Property="RenderTransform">
@@ -189,7 +193,7 @@
                 <Grid>
                   <Border CornerRadius="8,8,14,14" Margin="1,1,1,0" VerticalAlignment="Top"
                           Height="17" Background="{StaticResource Shine}"/>
-                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                  <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Margin="{TemplateBinding Padding}"/>
                 </Grid>
               </Border>
@@ -200,8 +204,10 @@
                 <Setter TargetName="bd" Property="BorderBrush" Value="#B3FFFFFF"/>
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="White"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
+                <Setter TargetName="glow" Property="BorderBrush" Value="{StaticResource Deep}"/>
+                <Setter TargetName="glow" Property="BorderThickness" Value="2"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="bd" Property="RenderTransform">
@@ -237,7 +243,7 @@
                 <Grid>
                   <Border CornerRadius="8,8,14,14" Margin="1,1,1,0" VerticalAlignment="Top"
                           Height="17" Background="{StaticResource Shine}"/>
-                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                  <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Margin="{TemplateBinding Padding}"/>
                 </Grid>
               </Border>
@@ -248,8 +254,10 @@
                 <Setter TargetName="bd" Property="BorderBrush" Value="#B3FFFFFF"/>
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="White"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
+                <Setter TargetName="glow" Property="BorderBrush" Value="{StaticResource Deep}"/>
+                <Setter TargetName="glow" Property="BorderThickness" Value="2"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="bd" Property="RenderTransform">
@@ -285,7 +293,7 @@
                 <Grid>
                   <Border CornerRadius="8,8,14,14" Margin="1,1,1,0" VerticalAlignment="Top"
                           Height="17" Background="{StaticResource Shine}"/>
-                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                  <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Margin="{TemplateBinding Padding}"/>
                 </Grid>
               </Border>
@@ -296,8 +304,10 @@
                 <Setter TargetName="bd" Property="BorderBrush" Value="#B3FFFFFF"/>
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="White"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
+                <Setter TargetName="glow" Property="BorderBrush" Value="{StaticResource Deep}"/>
+                <Setter TargetName="glow" Property="BorderThickness" Value="2"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="bd" Property="RenderTransform">
@@ -333,7 +343,7 @@
                 <Grid>
                   <Border CornerRadius="8,8,14,14" Margin="1,1,1,0" VerticalAlignment="Top"
                           Height="17" Background="{StaticResource Shine}"/>
-                  <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                  <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Margin="{TemplateBinding Padding}"/>
                 </Grid>
               </Border>
@@ -344,8 +354,10 @@
                 <Setter TargetName="bd" Property="BorderBrush" Value="#B3FFFFFF"/>
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="White"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
+                <Setter TargetName="glow" Property="BorderBrush" Value="{StaticResource Deep}"/>
+                <Setter TargetName="glow" Property="BorderThickness" Value="2"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="bd" Property="RenderTransform">
@@ -374,14 +386,14 @@
         <Setter.Value>
           <ControlTemplate TargetType="Button">
             <Border x:Name="bd" CornerRadius="8" Background="#66FFFFFF" BorderBrush="#80FFFFFF" BorderThickness="1">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+              <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="bd" Property="Background" Value="#AAFFFFFF"/>
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Deep}"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
               </Trigger>
               <Trigger Property="IsEnabled" Value="False">
@@ -406,7 +418,7 @@
         <Setter.Value>
           <ControlTemplate TargetType="Button">
             <Border x:Name="bd" CornerRadius="7" Background="#00FFFFFF">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
@@ -415,7 +427,7 @@
               <Trigger Property="IsKeyboardFocused" Value="True">
                 <Setter TargetName="bd" Property="Background" Value="#AAFFFFFF"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="1"/>
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Deep}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -459,7 +471,7 @@
                 <Setter Property="FontWeight" Value="SemiBold"/>
               </Trigger>
             <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Deep}"/>
                 <Setter TargetName="bar" Property="Opacity" Value="0.6"/>
               </Trigger>
             </ControlTemplate.Triggers>
@@ -517,7 +529,7 @@
                       Stroke="White" StrokeThickness="2.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                       Data="M 0,5 L 4,9 L 12,0"/>
               </Grid>
-              <ContentPresenter Margin="9,0,0,0" VerticalAlignment="Center"/>
+              <ContentPresenter RecognizesAccessKey="True" Margin="9,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
             <ControlTemplate.Triggers>
               <Trigger Property="IsChecked" Value="True">
@@ -609,6 +621,18 @@
       <Setter Property="FontSize" Value="12.5"/>
       <Setter Property="Height" Value="34"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <!-- Narrador lee el nombre de la fila, no "EmiItem" -->
+      <Setter Property="AutomationProperties.Name" Value="{Binding Name}"/>
+      <!-- Texto completo de la fila aunque la columna se quede corta -->
+      <Setter Property="ToolTip">
+        <Setter.Value>
+          <StackPanel MaxWidth="560">
+            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding Detail}" TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding Path}" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Setter.Value>
+      </Setter>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ListViewItem">
@@ -633,7 +657,9 @@
       <Setter Property="BorderBrush" Value="#66FFFFFF"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="ItemContainerStyle" Value="{StaticResource RowStyle}"/>
-      <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+      <!-- Las columnas se reparten el ancho (Register-EmiColumnFit); si aun asi no
+           caben, aparece la barra horizontal en vez de cortarlas -->
+      <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
     </Style>
 
     <!-- ============================= CAMPOS =========================== -->
@@ -651,7 +677,7 @@
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="bd" Property="BorderBrush" Value="#FF1F86C8"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Deep}"/>
                 <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
               </Trigger>
             </ControlTemplate.Triggers>
@@ -745,6 +771,38 @@
           </ControlTemplate>
         </Setter.Value>
       </Setter>
+      <Style.Triggers>
+        <!-- La barra horizontal (listas anchas) necesita su propia plantilla -->
+        <Trigger Property="Orientation" Value="Horizontal">
+          <Setter Property="Width" Value="Auto"/>
+          <Setter Property="Height" Value="10"/>
+          <Setter Property="Template">
+            <Setter.Value>
+              <ControlTemplate TargetType="ScrollBar">
+                <Grid Background="#1AFFFFFF">
+                  <Track x:Name="PART_Track" IsDirectionReversed="False">
+                    <Track.Thumb>
+                      <Thumb>
+                        <Thumb.Template>
+                          <ControlTemplate TargetType="Thumb">
+                            <Border CornerRadius="5" Margin="0,2" Background="#7A2E86B8"/>
+                          </ControlTemplate>
+                        </Thumb.Template>
+                      </Thumb>
+                    </Track.Thumb>
+                    <Track.IncreaseRepeatButton>
+                      <RepeatButton Command="ScrollBar.PageRightCommand" Opacity="0" Focusable="False"/>
+                    </Track.IncreaseRepeatButton>
+                    <Track.DecreaseRepeatButton>
+                      <RepeatButton Command="ScrollBar.PageLeftCommand" Opacity="0" Focusable="False"/>
+                    </Track.DecreaseRepeatButton>
+                  </Track>
+                </Grid>
+              </ControlTemplate>
+            </Setter.Value>
+          </Setter>
+        </Trigger>
+      </Style.Triggers>
     </Style>
 
   </Window.Resources>
@@ -838,7 +896,8 @@
                 <DockPanel>
                   <TextBlock Text="Modo avanzado" VerticalAlignment="Center" FontSize="12.5"
                              Foreground="{StaticResource Deep}" FontWeight="SemiBold"/>
-                  <ToggleButton x:Name="SwAdvanced" Style="{StaticResource Switch}" HorizontalAlignment="Right"/>
+                  <ToggleButton x:Name="SwAdvanced" Style="{StaticResource Switch}" HorizontalAlignment="Right"
+                                AutomationProperties.Name="Modo avanzado"/>
                 </DockPanel>
                 <DockPanel Margin="0,8,0,0">
                   <TextBlock Text="Contraste alto" VerticalAlignment="Center" FontSize="12.5"
@@ -847,7 +906,7 @@
                                 AutomationProperties.Name="Contraste alto"/>
                 </DockPanel>
                 <TextBlock x:Name="TbModeHint" Style="{StaticResource Sub}" Margin="0,6,0,0" FontSize="11"
-                           Text="Modo basico: un clic y listo."/>
+                           Text="Modo básico: un clic y listo."/>
                 <Rectangle Height="1" Fill="#59FFFFFF" Margin="0,9"/>
                 <TextBlock x:Name="TbAdminBadge" FontSize="11" Foreground="{StaticResource Muted}"
                            Text="Comprobando permisos..." TextWrapping="Wrap"/>
@@ -887,7 +946,7 @@
                 <RadioButton x:Name="NavPrivacy"  Style="{StaticResource Nav}" Tag="Privacy"  Visibility="Collapsed">
                   <StackPanel Orientation="Horizontal">
                     <Path Style="{StaticResource NavIcon}" Data="{StaticResource icShield}"/>
-                    <TextBlock Text="Telemetria" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Telemetría" Margin="10,0,0,0" VerticalAlignment="Center"/>
                   </StackPanel>
                 </RadioButton>
                 <RadioButton x:Name="NavPrivRecs" Style="{StaticResource Nav}" Tag="PrivRecs" Visibility="Collapsed">
@@ -899,7 +958,7 @@
                 <RadioButton x:Name="NavDebloat"  Style="{StaticResource Nav}" Tag="Debloat"  Visibility="Collapsed">
                   <StackPanel Orientation="Horizontal">
                     <Path Style="{StaticResource NavIcon}" Data="{StaticResource icTrash}"/>
-                    <TextBlock Text="Debloat Apps" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Apps preinstaladas" Margin="10,0,0,0" VerticalAlignment="Center"/>
                   </StackPanel>
                 </RadioButton>
                 <RadioButton x:Name="NavApps"     Style="{StaticResource Nav}" Tag="Apps"     Visibility="Collapsed">
@@ -935,13 +994,13 @@
                 <RadioButton x:Name="NavSystem"   Style="{StaticResource Nav}" Tag="System"   Visibility="Collapsed">
                   <StackPanel Orientation="Horizontal">
                     <Viewbox Width="19" Height="19" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Data="{StaticResource icGlobe}" Fill="{StaticResource GlossBlue}" Stroke="#B3FFFFFF" StrokeThickness="0.7"/><Path Data="{StaticResource icGlobeLines}" Stroke="#E6FFFFFF" StrokeThickness="1.4"/></Canvas></Viewbox>
-                    <TextBlock Text="Navegador y energia" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Navegador y energía" Margin="10,0,0,0" VerticalAlignment="Center"/>
                   </StackPanel>
                 </RadioButton>
                 <RadioButton x:Name="NavLog"      Style="{StaticResource Nav}" Tag="Log"      Visibility="Collapsed">
                   <StackPanel Orientation="Horizontal">
                     <Viewbox Width="19" Height="19" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Data="{StaticResource icDoc}" Fill="{StaticResource GlossBlue}" Stroke="#B3FFFFFF" StrokeThickness="0.7"/><Path Data="{StaticResource icDocLines}" Stroke="#E6FFFFFF" StrokeThickness="1.4"/></Canvas></Viewbox>
-                    <TextBlock Text="Registro y deshacer" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Historial y deshacer" Margin="10,0,0,0" VerticalAlignment="Center"/>
                   </StackPanel>
                 </RadioButton>
 
@@ -973,7 +1032,7 @@
             <StackPanel Grid.Row="0">
               <TextBlock x:Name="TbHello" Style="{StaticResource H1}" Text="Poner a punto este equipo"/>
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
-                         Text="Un solo boton limpia el disco, optimiza Windows 11, corta la telemetria, deja el firewall de ESET listo y quita programas del arranque."/>
+                         Text="Un solo boton limpia el disco, optimiza Windows 11, corta la telemetría, deja el firewall de ESET listo y quita programas del arranque."/>
             </StackPanel>
 
             <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,16,0,0">
@@ -985,15 +1044,15 @@
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
                   <TextBlock Style="{StaticResource H2}" Text="Mantenimiento completo" Margin="0,0,0,4"/>
                   <TextBlock Style="{StaticResource Sub}" x:Name="TbOneClickInfo"
-                             Text="Crea un punto de restauracion y aplica todo lo recomendado. Tarda entre 3 y 10 minutos."/>
+                             Text="Crea un punto de restauración y aplica todo lo recomendado. Tarda entre 3 y 10 minutos."/>
                   <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                    <CheckBox x:Name="ChkRestore" Style="{StaticResource Check}" IsChecked="True" Content="Punto de restauracion"/>
+                    <CheckBox x:Name="ChkRestore" Style="{StaticResource Check}" IsChecked="True" Content="Punto de restauración"/>
                     <CheckBox x:Name="ChkEsetInclude" Style="{StaticResource Check}" IsChecked="True" Margin="18,0,0,0" Content="Firewall ESET"/>
                     <CheckBox x:Name="ChkZenInclude" Style="{StaticResource Check}" IsChecked="True" Margin="18,0,0,0" Content="Zen predeterminado"/>
                   </StackPanel>
                 </StackPanel>
                 <Button Grid.Column="1" x:Name="BtnOneClick" Style="{StaticResource GlossBig}"
-                        Content="Optimizar ahora" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                        Content="_Optimizar ahora" VerticalAlignment="Center" Margin="20,0,0,0"/>
               </Grid>
             </Border>
 
@@ -1035,17 +1094,17 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <TextBlock Style="{StaticResource H2}" Text="Diagnostico rapido"/>
+                <TextBlock Style="{StaticResource H2}" Text="Diagnóstico rápido"/>
                 <UniformGrid Columns="2">
                   <Border Style="{StaticResource Card}" Margin="0,0,6,8" Padding="14">
                     <StackPanel>
-                      <TextBlock Text="Telemetria" FontWeight="SemiBold" Foreground="{StaticResource Deep}"/>
+                      <TextBlock Text="Telemetría" FontWeight="SemiBold" Foreground="{StaticResource Deep}"/>
                       <TextBlock x:Name="TbStatPrivacy" Style="{StaticResource Sub}" Margin="0,4,0,0" Text="-"/>
                     </StackPanel>
                   </Border>
                   <Border Style="{StaticResource Card}" Margin="6,0,0,8" Padding="14">
                     <StackPanel>
-                      <TextBlock Text="Inicio rapido" FontWeight="SemiBold" Foreground="{StaticResource Deep}"/>
+                      <TextBlock Text="Inicio rápido" FontWeight="SemiBold" Foreground="{StaticResource Deep}"/>
                       <TextBlock x:Name="TbStatFast" Style="{StaticResource Sub}" Margin="0,4,0,0" Text="-"/>
                     </StackPanel>
                   </Border>
@@ -1074,6 +1133,25 @@
                     </StackPanel>
                   </Border>
                 </UniformGrid>
+
+                <!-- Tanda 2 · Informe de salud (Modules\EmiHealth.psm1). El clic esta en EmiToolkit.ps1 (BtnHealthReport). -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,8" Padding="14">
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*"/>
+                      <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                      <TextBlock Text="Informe de salud" FontWeight="SemiBold" Foreground="{StaticResource Deep}"/>
+                      <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
+                                 Text="Revisa discos, bateria, estabilidad, seguridad y arranque sin cambiar nada, y deja el informe en Documentos."/>
+                      <CheckBox x:Name="ChkHealthWinSxS" Style="{StaticResource Check}" Margin="0,8,0,0" IsChecked="False"
+                                Content="Analizar tambien WinSxS (tarda varios minutos)"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" x:Name="BtnHealthReport" Style="{StaticResource Gloss}"
+                            Content="Informe de salud" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                  </Grid>
+                </Border>
               </StackPanel>
             </ScrollViewer>
           </Grid>
@@ -1148,16 +1226,16 @@
             <StackPanel Grid.Row="0">
               <TextBlock Style="{StaticResource H1}" Text="Espacio en disco"/>
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
-                         Text="Analiza que ocupa espacio, limpia basura del sistema y busca los archivos mas pesados."/>
+                         Text="Analiza que ocupa espacio, limpia basura del sistema y busca los archivos más pesados."/>
             </StackPanel>
 
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
-              <Button x:Name="BtnDiskScan"    Style="{StaticResource Gloss}"        Content="Analizar basura"/>
-              <Button x:Name="BtnDiskClean"   Style="{StaticResource GlossGreenBtn}" Content="Limpiar seleccionado" Margin="8,0,0,0"/>
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
+              <Button x:Name="BtnDiskScan"    Style="{StaticResource Gloss}"        Content="_Analizar basura"/>
+              <Button x:Name="BtnDiskClean"   Style="{StaticResource GlossGreenBtn}" Content="_Limpiar seleccionado" Margin="8,0,0,0"/>
               <Button x:Name="BtnDiskDism"    Style="{StaticResource Ghost}"        Content="Limpiar componentes (DISM)" Margin="8,0,0,0"/>
               <TextBlock x:Name="TbDiskTotal" VerticalAlignment="Center" Margin="16,0,0,0"
                          FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Ink}" Text=""/>
-            </StackPanel>
+            </WrapPanel>
 
             <TabControl Grid.Row="2" Margin="0,14,0,0" Background="Transparent" BorderThickness="0">
               <TabItem Header="Basura del sistema">
@@ -1171,8 +1249,8 @@
                           </DataTemplate>
                         </GridViewColumn.CellTemplate>
                       </GridViewColumn>
-                      <GridViewColumn Header="Ubicacion" Width="290" DisplayMemberBinding="{Binding Name}"/>
-                      <GridViewColumn Header="Tamano"    Width="100" DisplayMemberBinding="{Binding SizeText}"/>
+                      <GridViewColumn Header="Ubicación" Width="290" DisplayMemberBinding="{Binding Name}"/>
+                      <GridViewColumn Header="Tamaño"    Width="100" DisplayMemberBinding="{Binding SizeText}"/>
                       <GridViewColumn Header="Tipo"      Width="90"  DisplayMemberBinding="{Binding Category}"/>
                       <GridViewColumn Header="Detalle"   Width="330" DisplayMemberBinding="{Binding Detail}"/>
                     </GridView>
@@ -1185,15 +1263,16 @@
                   <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                   </Grid.RowDefinitions>
-                  <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                  <WrapPanel Grid.Row="0" Margin="0,0,0,8">
                     <TextBlock Text="Carpeta:" VerticalAlignment="Center" Foreground="{StaticResource Deep}" FontSize="12.5"/>
                     <TextBox x:Name="TxtScanPath" Style="{StaticResource Field}" Width="300" Margin="8,0,0,0"/>
-                    <TextBlock Text="Minimo MB:" VerticalAlignment="Center" Margin="14,0,0,0" Foreground="{StaticResource Deep}" FontSize="12.5"/>
+                    <TextBlock Text="Mínimo MB:" VerticalAlignment="Center" Margin="14,0,0,0" Foreground="{StaticResource Deep}" FontSize="12.5"/>
                     <TextBox x:Name="TxtScanMin" Style="{StaticResource Field}" Width="70" Margin="8,0,0,0" Text="100"/>
                     <Button x:Name="BtnScanFiles"   Style="{StaticResource Gloss}"  Content="Buscar archivos" Margin="10,0,0,0"/>
                     <Button x:Name="BtnScanFolders" Style="{StaticResource Ghost}"  Content="Medir carpetas" Margin="8,0,0,0"/>
-                  </StackPanel>
+                  </WrapPanel>
                   <ListView Grid.Row="1" x:Name="LvBig" Style="{StaticResource Lst}">
                     <ListView.View>
                       <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1205,15 +1284,15 @@
                           </GridViewColumn.CellTemplate>
                         </GridViewColumn>
                         <GridViewColumn Header="Nombre" Width="280" DisplayMemberBinding="{Binding Name}"/>
-                        <GridViewColumn Header="Tamano" Width="100" DisplayMemberBinding="{Binding SizeText}"/>
+                        <GridViewColumn Header="Tamaño" Width="100" DisplayMemberBinding="{Binding SizeText}"/>
                         <GridViewColumn Header="Fecha"  Width="100" DisplayMemberBinding="{Binding Status}"/>
                         <GridViewColumn Header="Ruta"   Width="380" DisplayMemberBinding="{Binding Detail}"/>
                       </GridView>
                     </ListView.View>
                   </ListView>
-                  <StackPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Bottom"
-                              HorizontalAlignment="Right" Margin="0,0,14,14">
-                    <Button x:Name="BtnOpenFile" Style="{StaticResource Ghost}" Content="Abrir ubicacion"/>
+                  <StackPanel Grid.Row="2" Orientation="Horizontal"
+                              HorizontalAlignment="Right" Margin="0,8,0,0">
+                    <Button x:Name="BtnOpenFile" Style="{StaticResource Ghost}" Content="Abrir ubicación"/>
                     <Button x:Name="BtnDeleteBig" Style="{StaticResource GlossAmberBtn}" Content="Enviar a la papelera" Margin="8,0,0,0"/>
                   </StackPanel>
                 </Grid>
@@ -1233,11 +1312,11 @@
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
                          Text="Quita lo que sobra. Lo recomendado viene marcado; el resto es opcional."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
-              <Button x:Name="BtnTweakApply" Style="{StaticResource GlossGreenBtn}" Content="Aplicar seleccionado"/>
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
+              <Button x:Name="BtnTweakApply" Style="{StaticResource GlossGreenBtn}" Content="_Aplicar seleccionado"/>
               <Button x:Name="BtnTweakRecommended" Style="{StaticResource Ghost}" Content="Marcar recomendados" Margin="8,0,0,0"/>
               <Button x:Name="BtnRestartExplorer" Style="{StaticResource Ghost}" Content="Reiniciar Explorador" Margin="8,0,0,0"/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvTweaks" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1248,7 +1327,7 @@
                       </DataTemplate>
                     </GridViewColumn.CellTemplate>
                   </GridViewColumn>
-                  <GridViewColumn Header="Optimizacion" Width="330" DisplayMemberBinding="{Binding Name}"/>
+                  <GridViewColumn Header="Optimización" Width="330" DisplayMemberBinding="{Binding Name}"/>
                   <GridViewColumn Header="Efecto"       Width="420" DisplayMemberBinding="{Binding Detail}"/>
                   <GridViewColumn Header=""             Width="110" DisplayMemberBinding="{Binding SizeText}"/>
                 </GridView>
@@ -1264,14 +1343,14 @@
               <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
             <StackPanel Grid.Row="0">
-              <TextBlock Style="{StaticResource H1}" Text="Telemetria y privacidad"/>
+              <TextBlock Style="{StaticResource H1}" Text="Telemetría y privacidad"/>
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
                          Text="Corta el envio de datos a Microsoft. No toca Windows Defender, Windows Update ni la activacion."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
-              <Button x:Name="BtnPrivApply" Style="{StaticResource GlossGreenBtn}" Content="Aplicar seleccionado"/>
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
+              <Button x:Name="BtnPrivApply" Style="{StaticResource GlossGreenBtn}" Content="_Aplicar seleccionado"/>
               <Button x:Name="BtnPrivRecommended" Style="{StaticResource Ghost}" Content="Marcar recomendados" Margin="8,0,0,0"/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvPrivacy" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1283,7 +1362,7 @@
                     </GridViewColumn.CellTemplate>
                   </GridViewColumn>
                   <GridViewColumn Header="Ajuste" Width="360" DisplayMemberBinding="{Binding Name}"/>
-                  <GridViewColumn Header="Que hace" Width="400" DisplayMemberBinding="{Binding Detail}"/>
+                  <GridViewColumn Header="Qué hace" Width="400" DisplayMemberBinding="{Binding Detail}"/>
                   <GridViewColumn Header="" Width="110" DisplayMemberBinding="{Binding SizeText}"/>
                 </GridView>
               </ListView.View>
@@ -1326,7 +1405,7 @@
                       <TextBlock Style="{StaticResource H2}" Text="Navegador Zen Browser"/>
                       <TextBlock x:Name="TbPrivRecZenState" Style="{StaticResource Sub}" Margin="0,4,0,0" Text="Comprobando..."/>
                       <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" FontSize="11"
-                                 Text="Zen es un navegador basado en Firefox, centrado en la privacidad. Sin telemetria, sin rastreo."/>
+                                 Text="Zen es un navegador basado en Firefox, centrado en la privacidad. Sin telemetría, sin rastreo."/>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
                       <Button x:Name="BtnPrivRecZenSet" Style="{StaticResource GlossGreenBtn}"
@@ -1348,7 +1427,7 @@
                       <TextBlock Style="{StaticResource H2}" Text="uBlock Origin en Zen"/>
                       <TextBlock x:Name="TbPrivRecUblockState" Style="{StaticResource Sub}" Margin="0,4,0,0" Text="Comprobando..."/>
                       <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" FontSize="11"
-                                 Text="El mejor bloqueador de anuncios y rastreadores. Ligero, de codigo abierto, sin intereses comerciales."/>
+                                 Text="El mejor bloqueador de anuncios y rastreadores. Ligero, de código abierto, sin intereses comerciales."/>
                     </StackPanel>
                     <Button x:Name="BtnPrivRecUblockInstall" Grid.Column="1" Style="{StaticResource Gloss}"
                             Content="Instalar uBlock Origin" VerticalAlignment="Center" Margin="12,0,0,0"/>
@@ -1363,9 +1442,9 @@
                       <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                      <TextBlock Style="{StaticResource H2}" Text="Gestor de contrasenas: LastPass"/>
+                      <TextBlock Style="{StaticResource H2}" Text="Gestor de contraseñas: LastPass"/>
                       <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
-                                 Text="Usa una contrasena unica para cada servicio. LastPass las genera, guarda y autocompleta. La version gratuita cubre un dispositivo."/>
+                                 Text="Usa una contraseña unica para cada servicio. LastPass las genera, guarda y autocompleta. La version gratuita cubre un dispositivo."/>
                     </StackPanel>
                     <Button x:Name="BtnLastPassOpen" Grid.Column="1" Style="{StaticResource Gloss}"
                             Content="Ir a LastPass" VerticalAlignment="Center" Margin="12,0,0,0"/>
@@ -1381,9 +1460,9 @@
                         <ColumnDefinition Width="Auto"/>
                       </Grid.ColumnDefinitions>
                       <StackPanel Grid.Column="0">
-                        <TextBlock Style="{StaticResource H2}" Text="Almacen local de contrasenas"/>
+                        <TextBlock Style="{StaticResource H2}" Text="Almacén local de contraseñas"/>
                         <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
-                                   Text="Guarda contrasenas en Data\vault.dat, cifradas con DPAPI de tu usuario de Windows: solo ese usuario, en este equipo, puede descifrarlas, y cualquier programa que se ejecute con tu sesion tambien podria. Windows Hello (huella, PIN o rostro) se pide para abrirlas aqui, pero no forma parte del cifrado. Si la carpeta esta en OneDrive, el archivo cifrado se sincroniza."/>
+                                   Text="Guarda contraseñas en Data\vault.dat, cifradas con DPAPI de tu usuario de Windows: solo ese usuario, en este equipo, puede descifrarlas, y cualquier programa que se ejecute con tu sesión también podría. Windows Hello (huella, PIN o rostro) se pide para abrirlas aquí, pero no forma parte del cifrado. Si la carpeta está en OneDrive, el archivo cifrado se sincroniza."/>
                       </StackPanel>
                       <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0,0,0">
                         <Button x:Name="BtnVaultUnlock" Style="{StaticResource GlossGreenBtn}"
@@ -1395,7 +1474,7 @@
 
                     <!-- Estado bloqueado -->
                     <TextBlock x:Name="TbVaultLockedMsg" Style="{StaticResource Sub}" Margin="0,12,0,0"
-                               Text="Almacen bloqueado. Pulsa Desbloquear para acceder." Foreground="{StaticResource Muted}"/>
+                               Text="Almacén bloqueado. Pulsa Desbloquear para acceder." Foreground="{StaticResource Muted}"/>
 
                     <!-- Contenido de la boveda (oculto hasta desbloquear) -->
                     <StackPanel x:Name="SpVaultContent" Visibility="Collapsed" Margin="0,14,0,0">
@@ -1403,7 +1482,7 @@
                       <!-- Generador -->
                       <Border CornerRadius="10" Background="#40FFFFFF" Padding="14" Margin="0,0,0,12">
                         <StackPanel>
-                          <TextBlock Style="{StaticResource H2}" Text="Generador de contrasenas seguras" Margin="0,0,0,8"/>
+                          <TextBlock Style="{StaticResource H2}" Text="Generador de contraseñas seguras" Margin="0,0,0,8"/>
                           <Grid>
                             <Grid.ColumnDefinitions>
                               <ColumnDefinition Width="*"/>
@@ -1412,7 +1491,7 @@
                             </Grid.ColumnDefinitions>
                             <TextBox x:Name="TxtGenPassword" Grid.Column="0" Style="{StaticResource Field}"
                                      IsReadOnly="True" FontFamily="Consolas" FontSize="14"
-                                     Text="Pulsa Generar para crear una contrasena"/>
+                                     Text="Pulsa Generar para crear una contraseña"/>
                             <Button x:Name="BtnGenPassword" Grid.Column="1" Style="{StaticResource Gloss}"
                                     Content="Generar" Margin="8,0,0,0"/>
                             <Button x:Name="BtnGenCopy" Grid.Column="2" Style="{StaticResource Ghost}"
@@ -1429,7 +1508,7 @@
                       <!-- Formulario agregar entrada -->
                       <Border CornerRadius="10" Background="#40FFFFFF" Padding="14" Margin="0,0,0,12">
                         <StackPanel>
-                          <TextBlock Style="{StaticResource H2}" Text="Anadir entrada" Margin="0,0,0,8"/>
+                          <TextBlock Style="{StaticResource H2}" Text="Añadir entrada" Margin="0,0,0,8"/>
                           <Grid>
                             <Grid.ColumnDefinitions>
                               <ColumnDefinition Width="*"/>
@@ -1448,11 +1527,22 @@
                             <TextBlock Grid.Row="0" Grid.Column="1" Text="Correo:" Foreground="{StaticResource Deep}" FontSize="12" Margin="0,0,0,2"/>
                             <TextBox x:Name="TxtVaultEmail" Grid.Row="1" Grid.Column="1" Style="{StaticResource Field}"
                                      Margin="0,0,0,8" Tag="Correo electronico"/>
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Contrasena:" Foreground="{StaticResource Deep}" FontSize="12" Margin="0,0,8,2"/>
-                            <TextBox x:Name="TxtVaultPassword" Grid.Row="3" Grid.Column="0" Style="{StaticResource Field}"
-                                     Margin="0,0,8,8" FontFamily="Consolas" Tag="Contrasena"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Contraseña:" Foreground="{StaticResource Deep}" FontSize="12" Margin="0,0,8,2"/>
+                            <!-- Contraseña oculta por defecto; la casilla la muestra en claro -->
+                            <Grid Grid.Row="3" Grid.Column="0" Margin="0,0,8,8">
+                              <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                              </Grid.ColumnDefinitions>
+                              <PasswordBox x:Name="PwVaultPassword" Grid.Column="0" Height="34" Padding="8,0" VerticalContentAlignment="Center"
+                                           FontFamily="Consolas" AutomationProperties.Name="Contraseña de la entrada"/>
+                              <TextBox x:Name="TxtVaultPassword" Grid.Column="0" Style="{StaticResource Field}" Visibility="Collapsed"
+                                       FontFamily="Consolas" AutomationProperties.Name="Contraseña de la entrada (visible)"/>
+                              <CheckBox x:Name="ChkVaultShow" Grid.Column="1" Style="{StaticResource Check}" Content="_Mostrar"
+                                        Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource Deep}"/>
+                            </Grid>
                             <Button x:Name="BtnVaultGenForEntry" Grid.Row="3" Grid.Column="1" Style="{StaticResource Ghost}"
-                                    Content="Generar contrasena" Margin="0,0,0,8" VerticalAlignment="Bottom"/>
+                                    Content="Generar contraseña" Margin="0,0,0,8" VerticalAlignment="Bottom"/>
                             <Button x:Name="BtnVaultAdd" Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
                                     Style="{StaticResource GlossGreenBtn}" Content="Guardar entrada" Margin="0,4,0,0"/>
                           </Grid>
@@ -1465,7 +1555,7 @@
                           <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
                             <GridViewColumn Header="Servicio"   Width="160" DisplayMemberBinding="{Binding AppName}"/>
                             <GridViewColumn Header="Correo"     Width="200" DisplayMemberBinding="{Binding Email}"/>
-                            <GridViewColumn Header="Contrasena" Width="140" DisplayMemberBinding="{Binding MaskedPassword}"/>
+                            <GridViewColumn Header="Contraseña" Width="140" DisplayMemberBinding="{Binding MaskedPassword}"/>
                             <GridViewColumn Header="Modificado" Width="140" DisplayMemberBinding="{Binding ModifiedText}"/>
                           </GridView>
                         </ListView.View>
@@ -1473,7 +1563,7 @@
 
                       <!-- Botones de accion sobre entrada seleccionada -->
                       <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <Button x:Name="BtnVaultCopyPw" Style="{StaticResource Gloss}" Content="Copiar contrasena"/>
+                        <Button x:Name="BtnVaultCopyPw" Style="{StaticResource Gloss}" Content="Copiar contraseña"/>
                         <Button x:Name="BtnVaultCopyEmail" Style="{StaticResource Ghost}" Content="Copiar correo" Margin="8,0,0,0"/>
                         <Button x:Name="BtnVaultDelete" Style="{StaticResource GlossRedBtn}" Content="Eliminar entrada" Margin="8,0,0,0"/>
                       </StackPanel>
@@ -1495,14 +1585,14 @@
               <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
             <StackPanel Grid.Row="0">
-              <TextBlock Style="{StaticResource H1}" Text="Debloat Apps y Features"/>
+              <TextBlock Style="{StaticResource H1}" Text="Quitar apps preinstaladas"/>
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
-                         Text="Quita bloatware preinstalado y toggles de Windows Features. La remocion de apps es parcialmente reversible via winget/Store."/>
+                         Text="Quita apps que vienen con Windows (antes «Debloat») y activa o desactiva características de Windows. Algunas apps solo se recuperan desde Microsoft Store; las características se pueden volver a activar."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
-              <Button x:Name="BtnDebloatApply" Style="{StaticResource GlossGreenBtn}" Content="Aplicar seleccionado"/>
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
+              <Button x:Name="BtnDebloatApply" Style="{StaticResource GlossGreenBtn}" Content="_Aplicar seleccionado"/>
               <Button x:Name="BtnDebloatRecommended" Style="{StaticResource Ghost}" Content="Marcar recomendados" Margin="8,0,0,0"/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvDebloat" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1531,13 +1621,13 @@
             <StackPanel Grid.Row="0">
               <TextBlock Style="{StaticResource H1}" Text="Aplicaciones instaladas"/>
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
-                         Text="Desinstala apps del usuario y limpia su cache (%LOCALAPPDATA%\Packages). Las apps del sistema estan protegidas y no se listan. Se registra como revertir cada desinstalacion."/>
+                         Text="Desinstala apps del usuario y limpia su caché (%LOCALAPPDATA%\Packages). Las apps del sistema están protegidas y no se listan. Se registra como revertir cada desinstalación."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnAppsScan"    Style="{StaticResource Gloss}" Content="Analizar"/>
               <Button x:Name="BtnAppsUninstall" Style="{StaticResource GlossRedBtn}" Content="Desinstalar seleccionado" Margin="8,0,0,0"/>
-              <Button x:Name="BtnAppsClearCache" Style="{StaticResource GlossAmberBtn}" Content="Limpiar cache seleccionada" Margin="8,0,0,0"/>
-            </StackPanel>
+              <Button x:Name="BtnAppsClearCache" Style="{StaticResource GlossAmberBtn}" Content="Limpiar caché seleccionada" Margin="8,0,0,0"/>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvApps" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1548,9 +1638,9 @@
                       </DataTemplate>
                     </GridViewColumn.CellTemplate>
                   </GridViewColumn>
-                  <GridViewColumn Header="Aplicacion" Width="280" DisplayMemberBinding="{Binding Name}"/>
-                  <GridViewColumn Header="Version"   Width="100" DisplayMemberBinding="{Binding Status}"/>
-                  <GridViewColumn Header="Cache"     Width="100" DisplayMemberBinding="{Binding SizeText}"/>
+                  <GridViewColumn Header="Aplicación" Width="280" DisplayMemberBinding="{Binding Name}"/>
+                  <GridViewColumn Header="Versión"   Width="100" DisplayMemberBinding="{Binding Status}"/>
+                  <GridViewColumn Header="Caché"     Width="100" DisplayMemberBinding="{Binding SizeText}"/>
                   <GridViewColumn Header="Ruta"      Width="420" DisplayMemberBinding="{Binding Detail}"/>
                 </GridView>
               </ListView.View>
@@ -1569,13 +1659,13 @@
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
                          Text="Crea las reglas de salida con los puertos y direcciones que ESET necesita para activarse, actualizarse y usar LiveGrid."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnEsetApply" Style="{StaticResource GlossGreenBtn}" Content="Aplicar reglas"/>
-              <Button x:Name="BtnEsetTest"  Style="{StaticResource Gloss}" Content="Probar conexion" Margin="8,0,0,0"/>
+              <Button x:Name="BtnEsetTest"  Style="{StaticResource Gloss}" Content="Probar conexión" Margin="8,0,0,0"/>
               <Button x:Name="BtnEsetRemove" Style="{StaticResource Ghost}" Content="Quitar reglas" Margin="8,0,0,0"/>
               <CheckBox x:Name="ChkEsetDns" Style="{StaticResource Check}" IsChecked="True" Margin="16,0,0,0"
                         VerticalAlignment="Center" Content="Resolver nombres por DNS (recomendado)"/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvEset" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1606,13 +1696,13 @@
             <StackPanel Grid.Row="0">
               <TextBlock Style="{StaticResource H1}" Text="Programas que arrancan con Windows"/>
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
-                         Text="Se desactivan igual que desde el Administrador de tareas, asi que se pueden volver a activar cuando quieras. Lo protegido (ESET, audio, tactil) nunca se toca."/>
+                         Text="Se desactivan igual que desde el Administrador de tareas, así que se pueden volver a activar cuando quieras. Lo protegido (ESET, audio, tactil) nunca se toca."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnStartupScan"    Style="{StaticResource Gloss}" Content="Analizar"/>
               <Button x:Name="BtnStartupDisable" Style="{StaticResource GlossGreenBtn}" Content="Desactivar seleccionado" Margin="8,0,0,0"/>
               <Button x:Name="BtnStartupEnable"  Style="{StaticResource Ghost}" Content="Reactivar seleccionado" Margin="8,0,0,0"/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvStartup" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1644,15 +1734,15 @@
             <StackPanel Grid.Row="0">
               <TextBlock Style="{StaticResource H1}" Text="Procesos y memoria"/>
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
-                         Text="Lo marcado como Sistema no se puede tocar. Telemetria y Prescindible se pueden cerrar; la telemetria ademas se puede dejar sin Internet."/>
+                         Text="Lo marcado como Sistema no se puede tocar. Telemetría y Prescindible se pueden cerrar; la telemetría además se puede dejar sin Internet."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnProcScan"  Style="{StaticResource Gloss}" Content="Analizar"/>
               <Button x:Name="BtnProcKill"  Style="{StaticResource GlossAmberBtn}" Content="Cerrar seleccionado" Margin="8,0,0,0"/>
               <Button x:Name="BtnProcBlock" Style="{StaticResource GlossRedBtn}" Content="Cerrar y bloquear red" Margin="8,0,0,0"/>
               <TextBlock x:Name="TbRam" VerticalAlignment="Center" Margin="16,0,0,0" FontSize="13"
                          FontWeight="SemiBold" Foreground="{StaticResource Ink}" Text=""/>
-            </StackPanel>
+            </WrapPanel>
             <ListView Grid.Row="2" x:Name="LvProcess" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
                 <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
@@ -1667,7 +1757,7 @@
                   <GridViewColumn Header="RAM"         Width="100" DisplayMemberBinding="{Binding SizeText}"/>
                   <GridViewColumn Header="Clase"       Width="120" DisplayMemberBinding="{Binding Category}"/>
                   <GridViewColumn Header="Instancias"  Width="90"  DisplayMemberBinding="{Binding Status}"/>
-                  <GridViewColumn Header="Descripcion" Width="370" DisplayMemberBinding="{Binding Detail}"/>
+                  <GridViewColumn Header="Descripción" Width="370" DisplayMemberBinding="{Binding Detail}"/>
                 </GridView>
               </ListView.View>
             </ListView>
@@ -1684,15 +1774,15 @@
             <StackPanel Grid.Row="0">
               <TextBlock Style="{StaticResource H1}" Text="Gestor de mods Vortex"/>
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
-                         Text="Vortex guarda los mods en 2 carpetas separadas: las descargas originales (.7z/.zip) que solo ocupan espacio, y los mods ya instalados/desplegados que el juego usa. Borrar las descargas es seguro y libera espacio sin tocar tus mods activos. Cierra Vortex antes de usar esta seccion."/>
+                         Text="Vortex guarda los mods en 2 carpetas separadas: las descargas originales (.7z/.zip) que solo ocupan espacio, y los mods ya instalados/desplegados que el juego usa. Borrar las descargas es seguro y libera espacio sin tocar tus mods activos. Cierra Vortex antes de usar está sección."/>
             </StackPanel>
 
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
               <Button x:Name="BtnVortexScan"     Style="{StaticResource Gloss}" Content="Analizar"/>
-              <Button x:Name="BtnVortexRemove"   Style="{StaticResource GlossGreenBtn}" Content="Purgar seleccionado" Margin="8,0,0,0"/>
+              <Button x:Name="BtnVortexRemove"   Style="{StaticResource GlossGreenBtn}" Content="Quitar mods seleccionados" Margin="8,0,0,0"/>
               <Button x:Name="BtnVortexFullClean" Style="{StaticResource Ghost}" Content="Eliminar Vortex completamente" Margin="8,0,0,0"/>
-              <Button x:Name="BtnVortexSkyrimClean" Style="{StaticResource GlossRedBtn}" Content="Force Clean Skyrim" Margin="8,0,0,0"/>
-            </StackPanel>
+              <Button x:Name="BtnVortexSkyrimClean" Style="{StaticResource GlossRedBtn}" Content="Borrar Skyrim por completo" Margin="8,0,0,0"/>
+            </WrapPanel>
 
             <ListView Grid.Row="2" x:Name="LvVortex" Style="{StaticResource Lst}" Margin="0,14,0,0">
               <ListView.View>
@@ -1706,9 +1796,9 @@
                   </GridViewColumn>
                   <GridViewColumn Header="Mod / Elemento" Width="260" DisplayMemberBinding="{Binding Name}"/>
                   <GridViewColumn Header="Juego"          Width="140" DisplayMemberBinding="{Binding Detail}"/>
-                  <GridViewColumn Header="Tamano"         Width="100" DisplayMemberBinding="{Binding SizeText}"/>
+                  <GridViewColumn Header="Tamaño"         Width="100" DisplayMemberBinding="{Binding SizeText}"/>
                   <GridViewColumn Header="Estado"         Width="100" DisplayMemberBinding="{Binding Status}"/>
-                  <GridViewColumn Header="Categoria"      Width="120" DisplayMemberBinding="{Binding Category}"/>
+                  <GridViewColumn Header="Categoría"      Width="120" DisplayMemberBinding="{Binding Category}"/>
                   <GridViewColumn Header="Ruta"           Width="350" DisplayMemberBinding="{Binding Path}"/>
                 </GridView>
               </ListView.View>
@@ -1719,7 +1809,7 @@
           <Grid x:Name="PageSystem" Visibility="Collapsed">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
               <StackPanel>
-                <TextBlock Style="{StaticResource H1}" Text="Navegador y energia"/>
+                <TextBlock Style="{StaticResource H1}" Text="Navegador y energía"/>
 
                 <Border Style="{StaticResource Card}" Margin="0,16,0,0">
                   <Grid>
@@ -1731,11 +1821,11 @@
                       <TextBlock Style="{StaticResource H2}" Text="Zen Browser como predeterminado" Margin="0,0,0,4"/>
                       <TextBlock x:Name="TbZenState" Style="{StaticResource Sub}" Text="Comprobando..."/>
                       <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" FontSize="11"
-                                 Text="Si Zen no esta instalado no se cambia nada. Windows 11 puede pedir una confirmacion final en Configuracion."/>
+                                 Text="Si Zen no está instalado no se cambia nada. Windows 11 puede pedir una confirmacion final en Configuración."/>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal">
                       <Button x:Name="BtnZenSet" Style="{StaticResource GlossGreenBtn}" Content="Poner Zen por defecto"/>
-                      <Button x:Name="BtnZenSettings" Style="{StaticResource Ghost}" Content="Abrir Configuracion" Margin="8,0,0,0"/>
+                      <Button x:Name="BtnZenSettings" Style="{StaticResource Ghost}" Content="Abrir Configuración" Margin="8,0,0,0"/>
                     </StackPanel>
                   </Grid>
                 </Border>
@@ -1747,15 +1837,15 @@
                       <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                      <TextBlock Style="{StaticResource H2}" Text="Inicio rapido de Windows" Margin="0,0,0,4"/>
+                      <TextBlock Style="{StaticResource H2}" Text="Inicio rápido de Windows" Margin="0,0,0,4"/>
                       <TextBlock x:Name="TbFastState" Style="{StaticResource Sub}" Text="Comprobando..."/>
                       <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" FontSize="11"
-                                 Text="Con el inicio rapido activo el equipo nunca se apaga del todo: arrastra errores, drivers colgados y actualizaciones a medias."/>
+                                 Text="Con el inicio rápido activo el equipo nunca se apaga del todo: arrastra errores, drivers colgados y actualizaciones a medias."/>
                       <CheckBox x:Name="ChkHiber" Style="{StaticResource Check}" Margin="0,10,0,0"
-                                Content="Desactivar tambien la hibernacion (libera varios GB)"/>
+                                Content="Desactivar también la hibernacion (libera varios GB)"/>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal">
-                      <Button x:Name="BtnFastDisable" Style="{StaticResource GlossGreenBtn}" Content="Desactivar inicio rapido"/>
+                      <Button x:Name="BtnFastDisable" Style="{StaticResource GlossGreenBtn}" Content="Desactivar inicio rápido"/>
                       <Button x:Name="BtnFastEnable" Style="{StaticResource Ghost}" Content="Volver a activar" Margin="8,0,0,0"/>
                     </StackPanel>
                   </Grid>
@@ -1763,7 +1853,7 @@
 
                 <Border Style="{StaticResource Card}" Margin="0,12,0,0">
                   <StackPanel>
-                    <TextBlock Style="{StaticResource H2}" Text="Informacion del equipo"/>
+                    <TextBlock Style="{StaticResource H2}" Text="Información del equipo"/>
                     <TextBlock x:Name="TbSysInfo" Style="{StaticResource Sub}" Text="-"/>
                   </StackPanel>
                 </Border>
@@ -1773,68 +1863,49 @@
 
           <!-- ========================= REGISTRO ===================== -->
           <Grid x:Name="PageStore" Visibility="Collapsed">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
             <StackPanel>
               <TextBlock Text="Another Store" FontSize="22" FontWeight="SemiBold"
-                         Foreground="#FF1F86C8" Margin="0,0,0,6"/>
-              <TextBlock TextWrapping="Wrap" Foreground="#FF2C5F7E" Margin="0,0,0,14"
+                         Foreground="{StaticResource Ink}" Margin="0,0,0,6"/>
+              <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,14"
                          Text="Explora e instala las aplicaciones de Another Suite. Visita la tienda online o desinstala apps directamente desde aquí."/>
 
               <Border Background="#CCFFFFFF" CornerRadius="8" Padding="16" Margin="0,0,0,16"
                       BorderBrush="#66FFFFFF" BorderThickness="1">
                 <StackPanel>
                   <TextBlock Text="Tienda Online" FontSize="15" FontWeight="SemiBold"
-                             Foreground="#FF1F86C8" Margin="0,0,0,6"/>
-                  <TextBlock TextWrapping="Wrap" Foreground="#FF2C5F7E" Margin="0,0,0,10"
+                             Foreground="{StaticResource Ink}" Margin="0,0,0,6"/>
+                  <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"
                              Text="Visita anotherstore.neocities.org para descargar las últimas versiones y descubrir nuevas apps."/>
-                  <Button x:Name="BtnStoreOpenWeb" Content="Abrir Another Store en el navegador"
-                          Foreground="White" FontSize="14" FontWeight="SemiBold" Height="40"
-                          Padding="14,7" Cursor="Hand" HorizontalAlignment="Left">
-                    <Button.Background>
-                      <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#FF6FC7F0" Offset="0"/>
-                        <GradientStop Color="#FF1F86C8" Offset="1"/>
-                      </LinearGradientBrush>
-                    </Button.Background>
-                  </Button>
+                  <Button x:Name="BtnStoreOpenWeb" Style="{StaticResource Gloss}" Content="Abrir Another Store en el navegador" HorizontalAlignment="Left"/>
                 </StackPanel>
               </Border>
 
               <TextBlock Text="Desinstalar Apps de Another Suite" FontSize="15" FontWeight="SemiBold"
-                         Foreground="#FF1F86C8" Margin="0,0,0,8"/>
-              <TextBlock TextWrapping="Wrap" Foreground="#FF2C5F7E" Margin="0,0,0,10"
+                         Foreground="{StaticResource Ink}" Margin="0,0,0,8"/>
+              <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"
                          Text="Selecciona las aplicaciones que deseas desinstalar. Se buscarán por nombre en el registro de Windows y se ejecutará su desinstalador si está disponible."/>
 
               <WrapPanel x:Name="StoreAppsPanel" Margin="0,0,0,14">
-                <CheckBox x:Name="ChkStoreAudio"  Content="Audio"   Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreDraw"   Content="Draw"    Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreFinance" Content="Finance" Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreHub"    Content="Hub"     Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreMedia"  Content="Media"   Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStorePhoto"  Content="Photo"   Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStorePixel"  Content="Pixel"   Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStorePresent" Content="Present" Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreReader" Content="Reader"  Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreVault"  Content="Vault"   Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
-                <CheckBox x:Name="ChkStoreWriter" Content="Writer"  Margin="0,0,14,8" Foreground="#FF2C5F7E"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreAudio"  Content="Audio"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreDraw"   Content="Draw"    Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreFinance" Content="Finance" Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreHub"    Content="Hub"     Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreMedia"  Content="Media"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStorePhoto"  Content="Photo"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStorePixel"  Content="Pixel"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStorePresent" Content="Present" Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreReader" Content="Reader"  Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreVault"  Content="Vault"   Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
+                <CheckBox Style="{StaticResource Check}" x:Name="ChkStoreWriter" Content="Writer"  Margin="0,0,14,8" Foreground="{StaticResource Muted}"/>
               </WrapPanel>
 
               <StackPanel Orientation="Horizontal">
-                <Button x:Name="BtnStoreUninstall" Content="Desinstalar seleccionadas"
-                        Foreground="White" FontSize="14" FontWeight="SemiBold" Height="40"
-                        Padding="14,7" Cursor="Hand" Margin="0,0,10,0">
-                  <Button.Background>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                      <GradientStop Color="#FFFFA694" Offset="0"/>
-                      <GradientStop Color="#FFC63C22" Offset="1"/>
-                    </LinearGradientBrush>
-                  </Button.Background>
-                </Button>
-                <Button x:Name="BtnStoreSelectAll" Content="Seleccionar todas"
-                        Foreground="#FF0B5C8A" FontSize="13" Height="34" Padding="14,7"
-                        Cursor="Hand" Background="Transparent"
-                        BorderBrush="#59FFFFFF" BorderThickness="1"/>
+                <Button x:Name="BtnStoreUninstall" Style="{StaticResource GlossRedBtn}" Content="Desinstalar seleccionadas" Margin="0,0,10,0"/>
+                <Button x:Name="BtnStoreSelectAll" Style="{StaticResource Ghost}" Content="Marcar todas"/>
               </StackPanel>
             </StackPanel>
+            </ScrollViewer>
           </Grid>
 
           <Grid x:Name="PageLog" Visibility="Collapsed">
@@ -1844,28 +1915,66 @@
               <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
             <StackPanel Grid.Row="0">
-              <TextBlock Style="{StaticResource H1}" Text="Registro y deshacer"/>
+              <TextBlock Style="{StaticResource H1}" Text="Historial y deshacer"/>
               <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0"
-                         Text="Cada cambio del registro, servicio, tarea y regla de firewall queda anotado y se puede revertir."/>
+                         Text="Cada cambio (Registro de Windows, servicios, tareas, reglas de firewall, apps, características, hosts, arranque) queda anotado en el diario. Aquí puedes deshacerlos uno a uno o todos; el historial de abajo es lo que ha ido pasando."/>
             </StackPanel>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,0">
-              <Button x:Name="BtnUndoAll" Style="{StaticResource GlossRedBtn}" Content="Revertir todos los cambios"/>
-              <Button x:Name="BtnOpenLog" Style="{StaticResource Ghost}" Content="Abrir carpeta de registros" Margin="8,0,0,0"/>
+            <WrapPanel Grid.Row="1" Margin="0,14,0,0">
+              <Button x:Name="BtnUndoAll" Style="{StaticResource GlossRedBtn}" Content="Deshacer todos los cambios"/>
+              <Button x:Name="BtnOpenLog" Style="{StaticResource Ghost}" Content="Abrir carpeta del historial" Margin="8,0,0,0"/>
               <TextBlock x:Name="TbUndoCount" VerticalAlignment="Center" Margin="16,0,0,0" FontSize="13"
                          Foreground="{StaticResource Ink}" Text=""/>
-            </StackPanel>
-            <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,14,0,0" Padding="4">
+            </WrapPanel>
+            <Grid Grid.Row="2" Margin="0,14,0,0">
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*" MinHeight="120"/>
+                <RowDefinition Height="*" MinHeight="100"/>
+              </Grid.RowDefinitions>
+              <WrapPanel Grid.Row="0" Margin="0,0,0,8">
+                <TextBlock Text="Cambios que se pueden deshacer" VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Deep}"/>
+                <Button x:Name="BtnUndoOne" Style="{StaticResource GlossAmberBtn}" Content="_Deshacer el seleccionado" Margin="16,0,0,0"/>
+                <Button x:Name="BtnJournalRefresh" Style="{StaticResource Ghost}" Content="Actualizar lista" Margin="8,0,0,0"/>
+              </WrapPanel>
+              <ListView Grid.Row="1" x:Name="LvJournal" Style="{StaticResource Lst}" SelectionMode="Single">
+                <ListView.View>
+                  <GridView ColumnHeaderContainerStyle="{StaticResource HeaderStyle}">
+                    <GridViewColumn Header="Cuándo"     Width="130" DisplayMemberBinding="{Binding When}"/>
+                    <GridViewColumn Header="Tipo"       Width="120" DisplayMemberBinding="{Binding Kind}"/>
+                    <GridViewColumn Header="Qué"        Width="420" DisplayMemberBinding="{Binding What}"/>
+                    <GridViewColumn Header="Reversible" Width="90"  DisplayMemberBinding="{Binding Reversible}"/>
+                  </GridView>
+                </ListView.View>
+              </ListView>
+            <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,10,0,0" Padding="4">
               <ScrollViewer x:Name="SvLog" VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="IcLog" Margin="10">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                      <TextBlock Text="{Binding Text}" FontFamily="Consolas" FontSize="11.5"
+                      <TextBlock x:Name="ln" Text="{Binding Text}" FontFamily="Consolas" FontSize="11.5"
                                  Foreground="{StaticResource Deep}" TextWrapping="Wrap" Margin="0,1"/>
+                      <!-- Color por nivel (todos >= 4,5:1 sobre la tarjeta clara) -->
+                      <DataTemplate.Triggers>
+                        <DataTrigger Binding="{Binding Level}" Value="Error">
+                          <Setter TargetName="ln" Property="Foreground" Value="#FFA4262C"/>
+                          <Setter TargetName="ln" Property="FontWeight" Value="SemiBold"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Level}" Value="Warn">
+                          <Setter TargetName="ln" Property="Foreground" Value="#FF8A4B00"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Level}" Value="Ok">
+                          <Setter TargetName="ln" Property="Foreground" Value="#FF2E6B12"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Level}" Value="Step">
+                          <Setter TargetName="ln" Property="FontWeight" Value="Bold"/>
+                        </DataTrigger>
+                      </DataTemplate.Triggers>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </ScrollViewer>
             </Border>
+            </Grid>
           </Grid>
 
         </Grid>
@@ -1878,12 +1987,15 @@
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="220"/>
           </Grid.ColumnDefinitions>
           <Ellipse x:Name="EllBusy" Grid.Column="0" Width="9" Height="9" VerticalAlignment="Center" Fill="#FF4CA22B"/>
           <TextBlock x:Name="TbStatus" Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center"
                      FontSize="11.5" Foreground="{StaticResource Deep}" Text="Listo" TextTrimming="CharacterEllipsis"/>
-          <ProgressBar x:Name="PbMain" Grid.Column="2" Style="{StaticResource Bar}" VerticalAlignment="Center"
+          <Button x:Name="BtnCancel" Grid.Column="2" Style="{StaticResource Ghost}" Height="26" Margin="8,0,10,0"
+                  Content="_Cancelar" Visibility="Collapsed" ToolTip="Para la tarea al terminar el paso que está haciendo"/>
+          <ProgressBar x:Name="PbMain" Grid.Column="3" Style="{StaticResource Bar}" VerticalAlignment="Center"
                        Minimum="0" Maximum="100" Value="0"/>
         </Grid>
       </Grid>
